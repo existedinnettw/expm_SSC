@@ -1,0 +1,327 @@
+#include "ssc_hal.h"
+#include <ecatappl.h>
+
+#include <stm32f4xx_hal.h>
+
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+// --- STM32 HAL handles (extern from main.c or define here if needed) ---
+extern SPI_HandleTypeDef hspi1;
+
+// --- Pin/Port definitions: adapt to your CubeMX configuration ---
+#define ESC_SPI_HANDLE hspi1
+#define ESC_SPI_TIMEOUT 100
+
+// main.h?
+#define ESC_SPI_IRQ_GPIO_Port GPIOD
+#define ESC_SPI_IRQ_Pin GPIO_PIN_2
+#define ESC_SYNC0_GPIO_Port GPIOD
+#define ESC_SYNC0_Pin GPIO_PIN_3
+#define ESC_SYNC1_GPIO_Port GPIOD
+#define ESC_SYNC1_Pin GPIO_PIN_4
+#define ESC_EEP_LOAD_GPIO_Port GPIOD
+#define ESC_EEP_LOAD_Pin GPIO_PIN_5
+
+/**
+ * @private
+ *
+ */
+typedef union
+{
+  UINT8 Byte[2]; // 0x220-0x221 (little endian)
+  UINT16 Word;
+} UALEVENT;
+
+/**
+ * @private
+ * @brief
+ * contains the content of the ALEvent register (0x220), this variable is
+ * updated on each Access to the Esc
+ */
+UALEVENT EscALEvent;
+
+#if ECAT_TIMER_INT == 1
+#elif ECAT_TIMER_INT == 0
+static UINT32 internal_timer =
+    0; // global timer variable, incremented by 1 every 1ms
+#endif
+
+/**
+ * @see Application Note ET9300 ch4.2
+ * @see Application Note ET9300 ch5.1 Interrupt Handler
+ * @see void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+ */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  UNUSED(htim);
+#if ECAT_TIMER_INT == 1
+
+  // `ECAT_CheckTimer` shall be called every 1ms.
+  ECAT_CheckTimer();
+// LOG_INF("1ms cb called");
+// printf("1ms cb called\n");
+#elif ECAT_TIMER_INT == 0
+  internal_timer += 1;
+#endif
+}
+
+#if INTERRUPTS_SUPPORTED == 1
+/**
+ * @see irq_unlock
+ */
+void ENABLE_ESC_INT() { __enable_irq(); }
+/**
+ * @see irq_lock
+ */
+void DISABLE_ESC_INT() { __disable_irq(); }
+#endif
+
+// ch5.2.1 Generic
+UINT8
+HW_Init(void)
+{
+  // read eeprom load pin, check eeprom load
+  while (true)
+  {
+    bool ret = HAL_GPIO_ReadPin(ESC_EEP_LOAD_GPIO_Port, ESC_EEP_LOAD_Pin) ==
+               GPIO_PIN_RESET;
+    if (ret)
+    {
+      // LOG_INF("EEPROM load is active");
+      printf("EEPROM load is active, start loading...\n");
+      break;
+    }
+    else
+    {
+      // LOG_INF("EEPROM load is not active yet...");
+      printf("EEPROM load is not active yet, waiting...\n");
+      // HAL have no us delay
+      HAL_Delay(1);
+    }
+  }
+
+  // check ESC SPI read/write ready
+  UINT32 intMask = 0x00;
+  do
+  {
+    // LOG_INF("Waiting for ESC to be ready...");
+    // k_sleep(K_USEC(10000));
+    HAL_Delay(1);
+    intMask = 0x93;
+    HW_EscWriteDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
+    // k_sleep(K_USEC(2));
+    intMask = 0;
+    HW_EscReadDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
+    // if (intMask != 0x93) {
+    //   // print intMask value
+    //   LOG_INF("ESC not ready to write in SPI value yet, intMask: %lx",
+    //   intMask);
+    // }
+  } while (intMask != 0x93);
+  printf("ESC is ready to write in SPI value");
+  intMask = 0x00;
+  HW_EscWriteDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
+
+  /**
+   * start timer
+   */
+
+  // start global interrupt
+
+  // LOG_INF("HW_Init() finished");
+  printf("HW_Init() finished\n");
+  return 0; // Success
+}
+void HW_Release(void) {}
+
+/**
+ * @private
+ * @brief
+ * The function operates a SPI access without addressing.
+ * @details
+ * The first two bytes of an access to the EtherCAT ASIC always deliver the
+ * AL_Event register (0x220). It will be saved in the global "EscALEvent"
+ */
+static void GetInterruptRegister(void)
+{
+  VARVOLATILE UINT8 dummy;
+  HW_EscRead((MEM_ADDR *)&dummy, 0, 1);
+}
+
+/**
+ * @private
+ * @brief
+ * The function operates a SPI access without addressing.
+ * @details
+ * Shall be implemented if interrupts are supported else this function is equal
+ * to "GetInterruptRegsiter()" The first two bytes of an access to the EtherCAT
+ * ASIC always deliver the AL_Event register (0x220). It will be saved in the
+ * global "EscALEvent"
+ */
+static void ISR_GetInterruptRegister(void)
+{
+  VARVOLATILE UINT8 dummy;
+  HW_EscReadIsr((MEM_ADDR *)&dummy, 0, 1);
+}
+
+/**
+ * @see
+ * Section III-ET1100 Hardware Description ch6.3.6
+ * @see
+ * Application Note ET9300 ch9
+ * @see
+ * Section II-ET1100 Register Description ch2.32
+ */
+UINT16
+HW_GetALEventRegister(void)
+{
+  GetInterruptRegister();
+  // printf("ESC ALEvent register: %x\n", EscALEvent.Word);
+  return EscALEvent.Word;
+}
+/**
+ * @see
+ * Section III-ET1100 Hardware Description ch6.3.6
+ * @see
+ * Application Note ET9300 ch9
+ * @see
+ * Section II-ET1100 Register Description ch2.32
+ */
+UINT16
+HW_GetALEventRegister_Isr(void)
+{
+  ISR_GetInterruptRegister();
+  return EscALEvent.Word;
+}
+
+#if AL_EVENT_ENABLED == 1 && IS_SSC_LOWER_5P10
+/**
+ * @todo
+ * not yet implement
+ */
+void HW_ResetALEventMask(UINT16 intMask) {};
+void HW_SetALEventMask(UINT16 intMask) {};
+#endif
+
+void HW_SetLed(UINT8 RunLed, UINT8 ErrLed)
+{
+  UNUSED(RunLed);
+  UNUSED(ErrLed);
+}
+
+#if BOOTSTRAPMODE_SUPPORTED == 1
+void HW_RestartTarget(void) {};
+#endif
+
+#if IS_SSC_LOWER_5P10
+
+void HW_DisableSyncManChannel(UINT8 channel) {};
+void HW_EnableSyncManChannel(UINT8 channel) {};
+TSYNCMAN *HW_GetSyncMan(UINT8 channel)
+{
+  // return TSYNCMAN();
+  return NULL;
+};
+#endif
+
+#if ECAT_TIMER_INT == 0
+
+#ifndef ECAT_TIMER_INC_P_MS
+#error "ECAT_TIMER_INC_P_MS is necessay if ECAT_TIMER_INT is 0"
+#endif
+
+UINT32
+HW_GetTimer(void) { return internal_timer; };
+
+void HW_ClearTimer(void)
+{
+  internal_timer = 0; // reset the timer
+};
+
+#endif
+
+#if ESC_EEPROM_EMULATION == 1
+UINT16
+HW_EepromReload(void) { return 0; };
+#endif
+
+/**
+ * ch5.2.2 Read Access
+ * @see Section III-ET1100 Hardware Description ch6.3.5 ch6.3.8.1
+ * @see mcp2515_cmd_read_reg
+ */
+void HW_EscRead(MEM_ADDR *pData, UINT16 Address, UINT16 Len)
+{
+  // 2 byte address mode and Read with wait state byte
+  uint16_t temp_addr_cmd = (Address << 3) | ESC_RD_WAIT;
+  uint8_t tx_buf_combined[3 + Len];
+  uint8_t rx_buf_combined[3 + Len];
+
+  tx_buf_combined[0] = (temp_addr_cmd >> 8) & 0xFF;
+  tx_buf_combined[1] = (temp_addr_cmd) & 0xFF;
+  tx_buf_combined[2] = WAIT_STATE_BYTE;
+  memset(&tx_buf_combined[3], 0x00, Len);
+
+  // Pull CS low (if not handled by HAL)
+  // HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_RESET);
+
+  if (HAL_SPI_TransmitReceive(&ESC_SPI_HANDLE, tx_buf_combined, rx_buf_combined, sizeof(tx_buf_combined), ESC_SPI_TIMEOUT) != HAL_OK)
+  {
+    printf("SPI read failed\n");
+  }
+
+  // Pull CS high (if not handled by HAL)
+  // HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_SET);
+
+  EscALEvent.Byte[0] = rx_buf_combined[0];
+  EscALEvent.Byte[1] = rx_buf_combined[1];
+  memcpy(pData, &rx_buf_combined[3], Len);
+}
+
+void HW_EscReadIsr(MEM_ADDR *pData, UINT16 Address, UINT16 Len)
+{
+  HW_EscRead(pData, Address, Len);
+  return;
+}
+
+/**
+ * ET9800 ch5.2.3 Write Access
+ *
+ * @see Section III-ET1100 Hardware Description ch6.3.5 ch6.3.7
+ * @see mcp2515_cmd_write_reg
+ * @details
+ * compared to HW_EscWriteIsr, it may additionally disable global interrupt
+ */
+void HW_EscWrite(MEM_ADDR *pData, UINT16 Address, UINT16 Len)
+{
+  // 2 byte address mode
+  uint16_t temp_addr_cmd = (Address << 3) | ESC_WR;
+  uint8_t tx_buf_combined[2 + Len];
+  uint8_t rx_buf_combined[2 + Len];
+
+  tx_buf_combined[0] = (temp_addr_cmd >> 8) & 0xFF;
+  tx_buf_combined[1] = (temp_addr_cmd) & 0xFF;
+  memcpy(&tx_buf_combined[2], pData, Len);
+
+  // Pull CS low (if not handled by HAL)
+  // HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_RESET);
+
+  if (HAL_SPI_TransmitReceive(&ESC_SPI_HANDLE, tx_buf_combined, rx_buf_combined, sizeof(tx_buf_combined), ESC_SPI_TIMEOUT) != HAL_OK)
+  {
+    printf("SPI write failed\n");
+  }
+
+  // Pull CS high (if not handled by HAL)
+  // HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_SET);
+
+  EscALEvent.Byte[0] = rx_buf_combined[0];
+  EscALEvent.Byte[1] = rx_buf_combined[1];
+}
+void HW_EscWriteIsr(MEM_ADDR *pData, UINT16 Address, UINT16 Len)
+{
+  HW_EscWrite(pData, Address, Len);
+  return;
+}

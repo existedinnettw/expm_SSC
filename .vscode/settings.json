@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "*.c": "c",
+        "*.h": "c",
+        "*.hpp": "cpp",
+        "*.cc": "cpp",
+        "*.cpp": "cpp",
+    },
+    "C_Cpp.autoAddFileAssociations": false,
+}
