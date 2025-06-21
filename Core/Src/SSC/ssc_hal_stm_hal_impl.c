@@ -129,7 +129,7 @@ HW_Init(void)
     //   intMask);
     // }
   } while (intMask != 0x93);
-  printf("ESC is ready to write in SPI value");
+  printf("ESC is ready to write in SPI value\n");
   intMask = 0x00;
   HW_EscWriteDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
 

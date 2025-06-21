@@ -99,6 +99,37 @@ static void
 MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
+/**
+ * @see
+ * https://github.com/STMicroelectronics/STM32CubeF4/blob/master/Projects/STM32F410xx-Nucleo/Examples/UART/UART_Printf/Src/main.c
+ */
+#ifdef __GNUC__
+/* With GCC, small printf (option LD Linker->Libraries->Small printf
+   set to 'Yes') calls __io_putchar() */
+#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+#else
+#define PUTCHAR_PROTOTYPE int fputc(int ch, FILE* f)
+#endif /* __GNUC__ */
+
+/**
+ * @brief  Retargets the C library printf function to the USART.
+ * @param  None
+ * @retval None
+ */
+PUTCHAR_PROTOTYPE
+{
+  /* Place your implementation of fputc here */
+  /* e.g. write a character to the EVAL_COM1 and Loop until the end of transmission */
+  /* Add carriage return before newline for proper terminal display */
+  if (ch == '\n') {
+    uint8_t cr = '\r';
+    HAL_UART_Transmit(&huart1, &cr, 1, 0xFFFF);
+  }
+  HAL_UART_Transmit(&huart1, (uint8_t*)&ch, 1, 0xFFFF);
+
+  return ch;
+}
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -190,19 +221,19 @@ main(void)
   }
   MainInit(); // COE_ObjDictionaryInit
 
-  // {
-  //   // k_sleep(K_MSEC(10));
-  //   // OBJCONST TOBJECT OBJMEM* ObjDicList = COE_GetObjectDictionary();
-  //   // print ObjDicList
-  //   for (int i = 0x6000; i < 0x6800; i++) {
-  //     OBJCONST TOBJECT OBJMEM* handle = OBJ_GetObjectHandle(i);
-  //     if (handle == NULL)
-  //       continue;
-  //     // printf("0x%x, name:%s\n", handle->Index, handle->pName);
-  //     // read data by `OBJ_Read`
-  //     // k_sleep(K_USEC(50));
-  //   }
-  // }
+  {
+    // k_sleep(K_MSEC(10));
+    // OBJCONST TOBJECT OBJMEM* ObjDicList = COE_GetObjectDictionary();
+    // print ObjDicList
+    for (int i = 0x6000; i < 0x6800; i++) {
+      OBJCONST TOBJECT OBJMEM* handle = OBJ_GetObjectHandle(i);
+      if (handle == NULL)
+        continue;
+      printf("0x%x, name:%s\n", handle->Index, handle->pName);
+      // read data by `OBJ_Read`
+      // k_sleep(K_USEC(50));
+    }
+  }
 
   printf("start\n");
 
