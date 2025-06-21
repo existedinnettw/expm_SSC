@@ -1,0 +1,20 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "cortex-debug",
+            "request": "launch",
+            "name": "Debug (OpenOCD)",
+            "servertype": "openocd",
+            "cwd": "${workspaceRoot}",
+            "runToEntryPoint": "main",
+            "executable": "${workspaceRoot}/build/Debug/expm_SSC.elf",
+            "device": "STM32F407VET6",
+            "configFiles": [
+                // "interface/stlink-v2-1.cfg",
+                "interface/cmsis-dap.cfg",
+                "target/stm32f4x.cfg"
+            ]
+        }
+    ]
+}

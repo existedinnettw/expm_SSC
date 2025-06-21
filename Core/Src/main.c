@@ -18,11 +18,15 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "string.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <SSC-Device.h>    //SSC-DeviceObjects.h --> ApplicationObjDic
+#include <applInterface.h> //pAPPL_MainLoop
 #include <ecatappl.h>
+
+
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,18 +45,11 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-
-ETH_TxPacketConfig TxConfig;
-ETH_DMADescTypeDef DMARxDscrTab[ETH_RX_DESC_CNT]; /* Ethernet Rx DMA Descriptors */
-ETH_DMADescTypeDef DMATxDscrTab[ETH_TX_DESC_CNT]; /* Ethernet Tx DMA Descriptors */
-
 ADC_HandleTypeDef hadc1;
 ADC_HandleTypeDef hadc2;
 ADC_HandleTypeDef hadc3;
 
 CAN_HandleTypeDef hcan1;
-
-ETH_HandleTypeDef heth;
 
 RTC_HandleTypeDef hrtc;
 
@@ -76,8 +73,6 @@ void
 SystemClock_Config(void);
 static void
 MX_GPIO_Init(void);
-static void
-MX_ETH_Init(void);
 static void
 MX_CAN1_Init(void);
 static void
@@ -132,6 +127,11 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
       break;
   }
 }
+
+void
+ssc_appl_application_impl()
+{
+}
 /* USER CODE END 0 */
 
 /**
@@ -164,7 +164,6 @@ main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_ETH_Init();
   MX_CAN1_Init();
   MX_RTC_Init();
   MX_SPI1_Init();
@@ -179,15 +178,61 @@ main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
+  SSC_appl_singleton_instance.APPL_Application = ssc_appl_application_impl;
+  pAPPL_MainLoop = NULL;
+
+  {
+    uint8_t rst = HW_Init();
+    if (rst != 0) {
+      printf("HW_Init failed with code: %d\n", rst);
+      return rst; // exit if HW_Init failed
+    }
+  }
+  MainInit(); // COE_ObjDictionaryInit
+
+  // {
+  //   // k_sleep(K_MSEC(10));
+  //   // OBJCONST TOBJECT OBJMEM* ObjDicList = COE_GetObjectDictionary();
+  //   // print ObjDicList
+  //   for (int i = 0x6000; i < 0x6800; i++) {
+  //     OBJCONST TOBJECT OBJMEM* handle = OBJ_GetObjectHandle(i);
+  //     if (handle == NULL)
+  //       continue;
+  //     // printf("0x%x, name:%s\n", handle->Index, handle->pName);
+  //     // read data by `OBJ_Read`
+  //     // k_sleep(K_USEC(50));
+  //   }
+  // }
+
+  printf("start\n");
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  bRunApplication = TRUE;
+  uint32_t loop_timer = 0;
   while (1) {
+    // this busy loop will break zephyr scheduling
+    MainLoop();
+
+    // k_sleep(K_USEC(100)); // this is a simple workaround to avoid busy loop
+    loop_timer++;
+    if (loop_timer >= 10000) { // 1s
+      loop_timer = 0;
+      // UINT16 al_req_ev = HW_GetALEventRegister();
+      // printf("ESC ALEvent register: 0x%x\n", al_req_ev);
+    }
+    if (bRunApplication == FALSE) {
+      break;
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
+
+  HW_Release();
   /* USER CODE END 3 */
 }
 
@@ -422,54 +467,6 @@ MX_CAN1_Init(void)
 }
 
 /**
- * @brief ETH Initialization Function
- * @param None
- * @retval None
- */
-static void
-MX_ETH_Init(void)
-{
-
-  /* USER CODE BEGIN ETH_Init 0 */
-
-  /* USER CODE END ETH_Init 0 */
-
-  static uint8_t MACAddr[6];
-
-  /* USER CODE BEGIN ETH_Init 1 */
-
-  /* USER CODE END ETH_Init 1 */
-  heth.Instance = ETH;
-  MACAddr[0] = 0x00;
-  MACAddr[1] = 0x80;
-  MACAddr[2] = 0xE1;
-  MACAddr[3] = 0x00;
-  MACAddr[4] = 0x00;
-  MACAddr[5] = 0x00;
-  heth.Init.MACAddr = &MACAddr[0];
-  heth.Init.MediaInterface = HAL_ETH_RMII_MODE;
-  heth.Init.TxDesc = DMATxDscrTab;
-  heth.Init.RxDesc = DMARxDscrTab;
-  heth.Init.RxBuffLen = 1524;
-
-  /* USER CODE BEGIN MACADDRESS */
-
-  /* USER CODE END MACADDRESS */
-
-  if (HAL_ETH_Init(&heth) != HAL_OK) {
-    Error_Handler();
-  }
-
-  memset(&TxConfig, 0, sizeof(ETH_TxPacketConfig));
-  TxConfig.Attributes = ETH_TX_PACKETS_FEATURES_CSUM | ETH_TX_PACKETS_FEATURES_CRCPAD;
-  TxConfig.ChecksumCtrl = ETH_CHECKSUM_IPHDR_PAYLOAD_INSERT_PHDR_CALC;
-  TxConfig.CRCPadCtrl = ETH_CRC_PAD_INSERT;
-  /* USER CODE BEGIN ETH_Init 2 */
-
-  /* USER CODE END ETH_Init 2 */
-}
-
-/**
  * @brief RTC Initialization Function
  * @param None
  * @retval None
@@ -527,7 +524,7 @@ MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -597,9 +594,9 @@ MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 0;
+  htim2.Init.Prescaler = 84;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4294967295;
+  htim2.Init.Period = 1000;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {

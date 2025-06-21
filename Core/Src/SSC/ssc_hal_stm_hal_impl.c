@@ -3,10 +3,10 @@
 
 #include <stm32f4xx_hal.h>
 
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdint.h>
-#include <stdbool.h>
 
 // --- STM32 HAL handles (extern from main.c or define here if needed) ---
 extern SPI_HandleTypeDef hspi1;
@@ -15,7 +15,7 @@ extern SPI_HandleTypeDef hspi1;
 #define ESC_SPI_HANDLE hspi1
 #define ESC_SPI_TIMEOUT 100
 
-// main.h?
+// copy from main.h?
 #define ESC_SPI_IRQ_GPIO_Port GPIOD
 #define ESC_SPI_IRQ_Pin GPIO_PIN_2
 #define ESC_SYNC0_GPIO_Port GPIOD
@@ -24,6 +24,11 @@ extern SPI_HandleTypeDef hspi1;
 #define ESC_SYNC1_Pin GPIO_PIN_4
 #define ESC_EEP_LOAD_GPIO_Port GPIOD
 #define ESC_EEP_LOAD_Pin GPIO_PIN_5
+#define SPI1_SS_ESC_GPIO_Port GPIOB
+#define SPI1_SS_ESC_Pin GPIO_PIN_6
+
+#define ESC_SPI_CS_Enable() HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_RESET)
+#define ESC_SPI_CS_Disable() HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_SET)
 
 /**
  * @private
@@ -45,8 +50,7 @@ UALEVENT EscALEvent;
 
 #if ECAT_TIMER_INT == 1
 #elif ECAT_TIMER_INT == 0
-static UINT32 internal_timer =
-    0; // global timer variable, incremented by 1 every 1ms
+static UINT32 internal_timer = 0; // global timer variable, incremented by 1 every 1ms
 #endif
 
 /**
@@ -54,7 +58,8 @@ static UINT32 internal_timer =
  * @see Application Note ET9300 ch5.1 Interrupt Handler
  * @see void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
  */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+void
+HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
 {
   UNUSED(htim);
 #if ECAT_TIMER_INT == 1
@@ -72,30 +77,34 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 /**
  * @see irq_unlock
  */
-void ENABLE_ESC_INT() { __enable_irq(); }
+void
+ENABLE_ESC_INT()
+{
+  __enable_irq();
+}
 /**
  * @see irq_lock
  */
-void DISABLE_ESC_INT() { __disable_irq(); }
+void
+DISABLE_ESC_INT()
+{
+  __disable_irq();
+}
 #endif
 
 // ch5.2.1 Generic
 UINT8
 HW_Init(void)
 {
+  ESC_SPI_CS_Disable();
   // read eeprom load pin, check eeprom load
-  while (true)
-  {
-    bool ret = HAL_GPIO_ReadPin(ESC_EEP_LOAD_GPIO_Port, ESC_EEP_LOAD_Pin) ==
-               GPIO_PIN_RESET;
-    if (ret)
-    {
+  while (true) {
+    bool ret = HAL_GPIO_ReadPin(ESC_EEP_LOAD_GPIO_Port, ESC_EEP_LOAD_Pin) == GPIO_PIN_RESET;
+    if (ret) {
       // LOG_INF("EEPROM load is active");
       printf("EEPROM load is active, start loading...\n");
       break;
-    }
-    else
-    {
+    } else {
       // LOG_INF("EEPROM load is not active yet...");
       printf("EEPROM load is not active yet, waiting...\n");
       // HAL have no us delay
@@ -105,8 +114,7 @@ HW_Init(void)
 
   // check ESC SPI read/write ready
   UINT32 intMask = 0x00;
-  do
-  {
+  do {
     // LOG_INF("Waiting for ESC to be ready...");
     // k_sleep(K_USEC(10000));
     HAL_Delay(1);
@@ -135,7 +143,10 @@ HW_Init(void)
   printf("HW_Init() finished\n");
   return 0; // Success
 }
-void HW_Release(void) {}
+void
+HW_Release(void)
+{
+}
 
 /**
  * @private
@@ -145,10 +156,11 @@ void HW_Release(void) {}
  * The first two bytes of an access to the EtherCAT ASIC always deliver the
  * AL_Event register (0x220). It will be saved in the global "EscALEvent"
  */
-static void GetInterruptRegister(void)
+static void
+GetInterruptRegister(void)
 {
   VARVOLATILE UINT8 dummy;
-  HW_EscRead((MEM_ADDR *)&dummy, 0, 1);
+  HW_EscRead((MEM_ADDR*)&dummy, 0, 1);
 }
 
 /**
@@ -161,10 +173,11 @@ static void GetInterruptRegister(void)
  * ASIC always deliver the AL_Event register (0x220). It will be saved in the
  * global "EscALEvent"
  */
-static void ISR_GetInterruptRegister(void)
+static void
+ISR_GetInterruptRegister(void)
 {
   VARVOLATILE UINT8 dummy;
-  HW_EscReadIsr((MEM_ADDR *)&dummy, 0, 1);
+  HW_EscReadIsr((MEM_ADDR*)&dummy, 0, 1);
 }
 
 /**
@@ -202,25 +215,32 @@ HW_GetALEventRegister_Isr(void)
  * @todo
  * not yet implement
  */
-void HW_ResetALEventMask(UINT16 intMask) {};
-void HW_SetALEventMask(UINT16 intMask) {};
+void
+HW_ResetALEventMask(UINT16 intMask) {};
+void
+HW_SetALEventMask(UINT16 intMask) {};
 #endif
 
-void HW_SetLed(UINT8 RunLed, UINT8 ErrLed)
+void
+HW_SetLed(UINT8 RunLed, UINT8 ErrLed)
 {
   UNUSED(RunLed);
   UNUSED(ErrLed);
 }
 
 #if BOOTSTRAPMODE_SUPPORTED == 1
-void HW_RestartTarget(void) {};
+void
+HW_RestartTarget(void) {};
 #endif
 
 #if IS_SSC_LOWER_5P10
 
-void HW_DisableSyncManChannel(UINT8 channel) {};
-void HW_EnableSyncManChannel(UINT8 channel) {};
-TSYNCMAN *HW_GetSyncMan(UINT8 channel)
+void
+HW_DisableSyncManChannel(UINT8 channel) {};
+void
+HW_EnableSyncManChannel(UINT8 channel) {};
+TSYNCMAN*
+HW_GetSyncMan(UINT8 channel)
 {
   // return TSYNCMAN();
   return NULL;
@@ -234,9 +254,13 @@ TSYNCMAN *HW_GetSyncMan(UINT8 channel)
 #endif
 
 UINT32
-HW_GetTimer(void) { return internal_timer; };
+HW_GetTimer(void)
+{
+  return internal_timer;
+};
 
-void HW_ClearTimer(void)
+void
+HW_ClearTimer(void)
 {
   internal_timer = 0; // reset the timer
 };
@@ -245,7 +269,10 @@ void HW_ClearTimer(void)
 
 #if ESC_EEPROM_EMULATION == 1
 UINT16
-HW_EepromReload(void) { return 0; };
+HW_EepromReload(void)
+{
+  return 0;
+};
 #endif
 
 /**
@@ -253,7 +280,8 @@ HW_EepromReload(void) { return 0; };
  * @see Section III-ET1100 Hardware Description ch6.3.5 ch6.3.8.1
  * @see mcp2515_cmd_read_reg
  */
-void HW_EscRead(MEM_ADDR *pData, UINT16 Address, UINT16 Len)
+void
+HW_EscRead(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 {
   // 2 byte address mode and Read with wait state byte
   uint16_t temp_addr_cmd = (Address << 3) | ESC_RD_WAIT;
@@ -268,10 +296,12 @@ void HW_EscRead(MEM_ADDR *pData, UINT16 Address, UINT16 Len)
   // Pull CS low (if not handled by HAL)
   // HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_RESET);
 
-  if (HAL_SPI_TransmitReceive(&ESC_SPI_HANDLE, tx_buf_combined, rx_buf_combined, sizeof(tx_buf_combined), ESC_SPI_TIMEOUT) != HAL_OK)
-  {
+  ESC_SPI_CS_Enable();
+  if (HAL_SPI_TransmitReceive(
+        &ESC_SPI_HANDLE, tx_buf_combined, rx_buf_combined, sizeof(tx_buf_combined), ESC_SPI_TIMEOUT) != HAL_OK) {
     printf("SPI read failed\n");
   }
+  ESC_SPI_CS_Disable();
 
   // Pull CS high (if not handled by HAL)
   // HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_SET);
@@ -281,7 +311,8 @@ void HW_EscRead(MEM_ADDR *pData, UINT16 Address, UINT16 Len)
   memcpy(pData, &rx_buf_combined[3], Len);
 }
 
-void HW_EscReadIsr(MEM_ADDR *pData, UINT16 Address, UINT16 Len)
+void
+HW_EscReadIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 {
   HW_EscRead(pData, Address, Len);
   return;
@@ -295,7 +326,8 @@ void HW_EscReadIsr(MEM_ADDR *pData, UINT16 Address, UINT16 Len)
  * @details
  * compared to HW_EscWriteIsr, it may additionally disable global interrupt
  */
-void HW_EscWrite(MEM_ADDR *pData, UINT16 Address, UINT16 Len)
+void
+HW_EscWrite(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 {
   // 2 byte address mode
   uint16_t temp_addr_cmd = (Address << 3) | ESC_WR;
@@ -309,10 +341,13 @@ void HW_EscWrite(MEM_ADDR *pData, UINT16 Address, UINT16 Len)
   // Pull CS low (if not handled by HAL)
   // HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_RESET);
 
-  if (HAL_SPI_TransmitReceive(&ESC_SPI_HANDLE, tx_buf_combined, rx_buf_combined, sizeof(tx_buf_combined), ESC_SPI_TIMEOUT) != HAL_OK)
-  {
+  ESC_SPI_CS_Enable();
+  if (HAL_SPI_TransmitReceive(
+        &ESC_SPI_HANDLE, tx_buf_combined, rx_buf_combined, sizeof(tx_buf_combined), ESC_SPI_TIMEOUT) != HAL_OK) {
     printf("SPI write failed\n");
   }
+  ESC_SPI_CS_Disable();
+
 
   // Pull CS high (if not handled by HAL)
   // HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_SET);
@@ -320,7 +355,8 @@ void HW_EscWrite(MEM_ADDR *pData, UINT16 Address, UINT16 Len)
   EscALEvent.Byte[0] = rx_buf_combined[0];
   EscALEvent.Byte[1] = rx_buf_combined[1];
 }
-void HW_EscWriteIsr(MEM_ADDR *pData, UINT16 Address, UINT16 Len)
+void
+HW_EscWriteIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 {
   HW_EscWrite(pData, Address, Len);
   return;
