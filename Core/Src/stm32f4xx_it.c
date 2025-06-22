@@ -198,16 +198,17 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
-  * @brief This function handles EXTI line2 interrupt.
+  * @brief This function handles EXTI line0 interrupt.
   */
-void EXTI2_IRQHandler(void)
+void EXTI0_IRQHandler(void)
 {
-  /* USER CODE BEGIN EXTI2_IRQn 0 */
-  
-  /* USER CODE END EXTI2_IRQn 0 */
+  /* USER CODE BEGIN EXTI0_IRQn 0 */
+
+  /* USER CODE END EXTI0_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(ESC_SPI_IRQ_Pin);
-  /* USER CODE BEGIN EXTI2_IRQn 1 */
-  /* USER CODE END EXTI2_IRQn 1 */
+  /* USER CODE BEGIN EXTI0_IRQn 1 */
+
+  /* USER CODE END EXTI0_IRQn 1 */
 }
 
 /**
@@ -244,11 +245,6 @@ void EXTI4_IRQHandler(void)
 void TIM2_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM2_IRQn 0 */
-
-#if ECAT_TIMER_INT == 1
-  // `ECAT_CheckTimer` shall be called every 1ms.
-  ECAT_CheckTimer();
-#endif
 
   /* USER CODE END TIM2_IRQn 0 */
   HAL_TIM_IRQHandler(&htim2);

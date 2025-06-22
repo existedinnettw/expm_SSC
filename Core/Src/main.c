@@ -49,8 +49,6 @@ ADC_HandleTypeDef hadc1;
 ADC_HandleTypeDef hadc2;
 ADC_HandleTypeDef hadc3;
 
-CAN_HandleTypeDef hcan1;
-
 RTC_HandleTypeDef hrtc;
 
 SPI_HandleTypeDef hspi1;
@@ -73,8 +71,6 @@ void
 SystemClock_Config(void);
 static void
 MX_GPIO_Init(void);
-static void
-MX_CAN1_Init(void);
 static void
 MX_RTC_Init(void);
 static void
@@ -137,19 +133,23 @@ PUTCHAR_PROTOTYPE
 void
 HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+  DISABLE_ESC_INT();
   switch (GPIO_Pin) {
     case ESC_SPI_IRQ_Pin:
 #if AL_EVENT_ENABLED == 1
+      printf("PDI trig\n");
       PDI_Isr();
 #endif
       break;
     case ESC_SYNC0_Pin:
 #if DC_SUPPORTED == 1
+      printf("Sync0 trig\n");
       Sync0_Isr();
 #endif
       break;
     case ESC_SYNC1_Pin:
 #if DC_SUPPORTED == 1
+      printf("Sync1 trig\n");
       Sync1_Isr();
 #endif
       break;
@@ -157,6 +157,7 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     default:
       break;
   }
+  ENABLE_ESC_INT();
 }
 
 void
@@ -195,7 +196,6 @@ main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_CAN1_Init();
   MX_RTC_Init();
   MX_SPI1_Init();
   MX_SPI2_Init();
@@ -219,6 +219,7 @@ main(void)
       return rst; // exit if HW_Init failed
     }
   }
+
   MainInit(); // COE_ObjDictionaryInit
 
   {
@@ -459,42 +460,6 @@ MX_ADC3_Init(void)
   /* USER CODE BEGIN ADC3_Init 2 */
 
   /* USER CODE END ADC3_Init 2 */
-}
-
-/**
- * @brief CAN1 Initialization Function
- * @param None
- * @retval None
- */
-static void
-MX_CAN1_Init(void)
-{
-
-  /* USER CODE BEGIN CAN1_Init 0 */
-
-  /* USER CODE END CAN1_Init 0 */
-
-  /* USER CODE BEGIN CAN1_Init 1 */
-
-  /* USER CODE END CAN1_Init 1 */
-  hcan1.Instance = CAN1;
-  hcan1.Init.Prescaler = 16;
-  hcan1.Init.Mode = CAN_MODE_NORMAL;
-  hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan1.Init.TimeSeg1 = CAN_BS1_1TQ;
-  hcan1.Init.TimeSeg2 = CAN_BS2_1TQ;
-  hcan1.Init.TimeTriggeredMode = DISABLE;
-  hcan1.Init.AutoBusOff = DISABLE;
-  hcan1.Init.AutoWakeUp = DISABLE;
-  hcan1.Init.AutoRetransmission = DISABLE;
-  hcan1.Init.ReceiveFifoLocked = DISABLE;
-  hcan1.Init.TransmitFifoPriority = DISABLE;
-  if (HAL_CAN_Init(&hcan1) != HAL_OK) {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN CAN1_Init 2 */
-
-  /* USER CODE END CAN1_Init 2 */
 }
 
 /**
@@ -880,19 +845,19 @@ MX_GPIO_Init(void)
   /*Configure GPIO pins : ESC_SPI_IRQ_Pin ESC_SYNC0_Pin ESC_SYNC1_Pin */
   GPIO_InitStruct.Pin = ESC_SPI_IRQ_Pin | ESC_SYNC0_Pin | ESC_SYNC1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /*Configure GPIO pin : ESC_EEP_LOAD_Pin */
   GPIO_InitStruct.Pin = ESC_EEP_LOAD_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(ESC_EEP_LOAD_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI2_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
   HAL_NVIC_SetPriority(EXTI3_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI3_IRQn);
@@ -901,6 +866,12 @@ MX_GPIO_Init(void)
   HAL_NVIC_EnableIRQ(EXTI4_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
+
+  // enable later
+  HAL_NVIC_DisableIRQ(ESC_SPI_IRQ_EXTI_IRQn);
+  HAL_NVIC_DisableIRQ(ESC_SYNC0_EXTI_IRQn);
+  HAL_NVIC_DisableIRQ(ESC_SYNC1_EXTI_IRQn);
+
   /* USER CODE END MX_GPIO_Init_2 */
 }
 

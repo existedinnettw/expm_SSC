@@ -93,9 +93,9 @@ void Error_Handler(void);
 #define TIM3_CH1_ENC_A_GPIO_Port GPIOC
 #define TIM3_CH2_ENC_B_Pin GPIO_PIN_7
 #define TIM3_CH2_ENC_B_GPIO_Port GPIOC
-#define ESC_SPI_IRQ_Pin GPIO_PIN_2
+#define ESC_SPI_IRQ_Pin GPIO_PIN_0
 #define ESC_SPI_IRQ_GPIO_Port GPIOD
-#define ESC_SPI_IRQ_EXTI_IRQn EXTI2_IRQn
+#define ESC_SPI_IRQ_EXTI_IRQn EXTI0_IRQn
 #define ESC_SYNC0_Pin GPIO_PIN_3
 #define ESC_SYNC0_GPIO_Port GPIOD
 #define ESC_SYNC0_EXTI_IRQn EXTI3_IRQn

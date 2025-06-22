@@ -1,5 +1,6 @@
 #include "ssc_hal.h"
 #include <ecatappl.h>
+#include <main.h>
 
 #include <stm32f4xx_hal.h>
 
@@ -10,22 +11,14 @@
 
 // --- STM32 HAL handles (extern from main.c or define here if needed) ---
 extern SPI_HandleTypeDef hspi1;
+extern TIM_HandleTypeDef htim2;
 
 // --- Pin/Port definitions: adapt to your CubeMX configuration ---
 #define ESC_SPI_HANDLE hspi1
-#define ESC_SPI_TIMEOUT 100
+#define ESC_SPI_TIMEOUT 2 // ms
+#define ESC_TIM_HANDLE htim2
 
-// copy from main.h?
-#define ESC_SPI_IRQ_GPIO_Port GPIOD
-#define ESC_SPI_IRQ_Pin GPIO_PIN_2
-#define ESC_SYNC0_GPIO_Port GPIOD
-#define ESC_SYNC0_Pin GPIO_PIN_3
-#define ESC_SYNC1_GPIO_Port GPIOD
-#define ESC_SYNC1_Pin GPIO_PIN_4
-#define ESC_EEP_LOAD_GPIO_Port GPIOD
-#define ESC_EEP_LOAD_Pin GPIO_PIN_5
-#define SPI1_SS_ESC_GPIO_Port GPIOB
-#define SPI1_SS_ESC_Pin GPIO_PIN_6
+// interface lib stm32cubemx already include main.h, which define Pin
 
 #define ESC_SPI_CS_Enable() HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_RESET)
 #define ESC_SPI_CS_Disable() HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_SET)
@@ -57,11 +50,14 @@ static UINT32 internal_timer = 0; // global timer variable, incremented by 1 eve
  * @see Application Note ET9300 ch4.2
  * @see Application Note ET9300 ch5.1 Interrupt Handler
  * @see void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+ * @see void PeriodElapsedCallback(TIM_HandleTypeDef *htim)
  */
 void
-HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
+counter_cb(TIM_HandleTypeDef* htim)
 {
+  DISABLE_ESC_INT();
   UNUSED(htim);
+  // printf("timer called\n");
 #if ECAT_TIMER_INT == 1
 
   // `ECAT_CheckTimer` shall be called every 1ms.
@@ -71,6 +67,7 @@ HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim)
 #elif ECAT_TIMER_INT == 0
   internal_timer += 1;
 #endif
+  ENABLE_ESC_INT();
 }
 
 #if INTERRUPTS_SUPPORTED == 1
@@ -96,13 +93,12 @@ DISABLE_ESC_INT()
 UINT8
 HW_Init(void)
 {
+  // DISABLE_ESC_INT();
   ESC_SPI_CS_Disable();
   // read eeprom load pin, check eeprom load
   while (true) {
     bool ret = HAL_GPIO_ReadPin(ESC_EEP_LOAD_GPIO_Port, ESC_EEP_LOAD_Pin) == GPIO_PIN_RESET;
     if (ret) {
-      // LOG_INF("EEPROM load is active");
-      printf("EEPROM load is active, start loading...\n");
       break;
     } else {
       // LOG_INF("EEPROM load is not active yet...");
@@ -111,13 +107,15 @@ HW_Init(void)
       HAL_Delay(1);
     }
   }
+  // LOG_INF("EEPROM load is active");
+  printf("EEPROM load is active, start loading...\n");
 
   // check ESC SPI read/write ready
   UINT32 intMask = 0x00;
   do {
     // LOG_INF("Waiting for ESC to be ready...");
     // k_sleep(K_USEC(10000));
-    HAL_Delay(1);
+    HAL_Delay(10);
     intMask = 0x93;
     HW_EscWriteDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
     // k_sleep(K_USEC(2));
@@ -133,14 +131,27 @@ HW_Init(void)
   intMask = 0x00;
   HW_EscWriteDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
 
-  /**
-   * start timer
-   */
+/**
+ * start timer
+ */
+#if USE_HAL_TIM_REGISTER_CALLBACKS != 1
+#error "current SSC implement use USE_HAL_TIM_REGISTER_CALLBACKS, plz enable it in CubeMX"
+#endif
+  ESC_TIM_HANDLE.PeriodElapsedCallback = counter_cb;
+  if (HAL_TIM_Base_Start_IT(&ESC_TIM_HANDLE) != HAL_OK) {
+    // LOG_ERR("ESC timer start failed");
+    printf("ESC timer start failed\n");
+    return 1; // Error
+  }
 
   // start global interrupt
+  HAL_NVIC_EnableIRQ(ESC_SPI_IRQ_EXTI_IRQn);
+  HAL_NVIC_EnableIRQ(ESC_SYNC0_EXTI_IRQn);
+  HAL_NVIC_EnableIRQ(ESC_SYNC1_EXTI_IRQn);
 
   // LOG_INF("HW_Init() finished");
   printf("HW_Init() finished\n");
+  // ENABLE_ESC_INT();
   return 0; // Success
 }
 void
@@ -283,6 +294,15 @@ HW_EepromReload(void)
 void
 HW_EscRead(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 {
+  DISABLE_ESC_INT();
+  HW_EscReadIsr(pData, Address, Len);
+  ENABLE_ESC_INT();
+  return;
+}
+
+void
+HW_EscReadIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
+{
   // 2 byte address mode and Read with wait state byte
   uint16_t temp_addr_cmd = (Address << 3) | ESC_RD_WAIT;
   uint8_t tx_buf_combined[3 + Len];
@@ -309,12 +329,6 @@ HW_EscRead(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
   EscALEvent.Byte[0] = rx_buf_combined[0];
   EscALEvent.Byte[1] = rx_buf_combined[1];
   memcpy(pData, &rx_buf_combined[3], Len);
-}
-
-void
-HW_EscReadIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
-{
-  HW_EscRead(pData, Address, Len);
   return;
 }
 
@@ -329,6 +343,15 @@ HW_EscReadIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 void
 HW_EscWrite(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 {
+  DISABLE_ESC_INT();
+  HW_EscWriteIsr(pData, Address, Len);
+  ENABLE_ESC_INT();
+  return;
+}
+void
+HW_EscWriteIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
+{
+
   // 2 byte address mode
   uint16_t temp_addr_cmd = (Address << 3) | ESC_WR;
   uint8_t tx_buf_combined[2 + Len];
@@ -354,10 +377,5 @@ HW_EscWrite(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 
   EscALEvent.Byte[0] = rx_buf_combined[0];
   EscALEvent.Byte[1] = rx_buf_combined[1];
-}
-void
-HW_EscWriteIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
-{
-  HW_EscWrite(pData, Address, Len);
   return;
 }
