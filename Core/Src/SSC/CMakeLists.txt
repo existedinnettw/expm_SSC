@@ -22,7 +22,7 @@ target_include_directories(SSC PUBLIC ${CMAKE_CURRENT_LIST_DIR}/Src
 target_link_libraries(SSC PRIVATE stm32cubemx)
 
 # For ax58100, plz remember modify ESI eeprom tag word offset 0x02 `0x0A00` -->
-# `0x1027`
+# `0x1027` e.g. <ConfigData>050D08EE0A00</ConfigData> to <ConfigData>050D08EE1027</ConfigData>
 
 # `siitool SSC-Device.xml -o SSC-Device.bin`
 

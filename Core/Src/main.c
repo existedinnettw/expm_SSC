@@ -24,7 +24,8 @@
 #include <SSC-Device.h>    //SSC-DeviceObjects.h --> ApplicationObjDic
 #include <applInterface.h> //pAPPL_MainLoop
 #include <ecatappl.h>
-
+// aware that cubeMX not support CPP generation (only cubeIDE does)
+// https://community.st.com/t5/stm32cubemx-mcus/how-to-configure-stm32cubemx-to-support-c-development/td-p/109965
 
 #include <stdio.h>
 /* USER CODE END Includes */
