@@ -27,7 +27,9 @@
 // aware that cubeMX not support CPP generation (only cubeIDE does)
 // https://community.st.com/t5/stm32cubemx-mcus/how-to-configure-stm32cubemx-to-support-c-development/td-p/109965
 
+#include <stdint.h>
 #include <stdio.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -134,7 +136,9 @@ PUTCHAR_PROTOTYPE
 void
 HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+#if INTERRUPTS_SUPPORTED == 1
   DISABLE_ESC_INT();
+#endif
   switch (GPIO_Pin) {
     case ESC_SPI_IRQ_Pin:
 #if AL_EVENT_ENABLED == 1
@@ -156,9 +160,12 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
       break;
 
     default:
+      printf("Unknown GPIO_EXTI Callback: 0x%x\n", GPIO_Pin);
       break;
   }
+#if INTERRUPTS_SUPPORTED == 1
   ENABLE_ESC_INT();
+#endif
 }
 
 void
@@ -222,20 +229,6 @@ main(void)
   }
 
   MainInit(); // COE_ObjDictionaryInit
-
-  {
-    // k_sleep(K_MSEC(10));
-    // OBJCONST TOBJECT OBJMEM* ObjDicList = COE_GetObjectDictionary();
-    // print ObjDicList
-    for (int i = 0x6000; i < 0x6800; i++) {
-      OBJCONST TOBJECT OBJMEM* handle = OBJ_GetObjectHandle(i);
-      if (handle == NULL)
-        continue;
-      printf("0x%x, name:%s\n", handle->Index, handle->pName);
-      // read data by `OBJ_Read`
-      // k_sleep(K_USEC(50));
-    }
-  }
 
   printf("start\n");
 
@@ -518,8 +511,8 @@ MX_SPI1_Init(void)
   hspi1.Init.Mode = SPI_MODE_MASTER;
   hspi1.Init.Direction = SPI_DIRECTION_2LINES;
   hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
-  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi1.Init.CLKPolarity = SPI_POLARITY_HIGH;
+  hspi1.Init.CLKPhase = SPI_PHASE_2EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
   hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
@@ -807,9 +800,6 @@ MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(SPI2_SS_ENC_GPIO_Port, SPI2_SS_ENC_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(ESC_EEP_LOAD_GPIO_Port, ESC_EEP_LOAD_Pin, GPIO_PIN_RESET);
-
   /*Configure GPIO pins : K1_Pin K0_Pin */
   GPIO_InitStruct.Pin = K1_Pin | K0_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
@@ -829,12 +819,12 @@ MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(led0_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : BOOT1_Pin SPI1_SS_ESC_Pin */
-  GPIO_InitStruct.Pin = BOOT1_Pin | SPI1_SS_ESC_Pin;
+  /*Configure GPIO pin : BOOT1_Pin */
+  GPIO_InitStruct.Pin = BOOT1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(BOOT1_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : SPI2_SS_ENC_Pin */
   GPIO_InitStruct.Pin = SPI2_SS_ENC_Pin;
@@ -845,16 +835,22 @@ MX_GPIO_Init(void)
 
   /*Configure GPIO pins : ESC_SPI_IRQ_Pin ESC_SYNC0_Pin ESC_SYNC1_Pin */
   GPIO_InitStruct.Pin = ESC_SPI_IRQ_Pin | ESC_SYNC0_Pin | ESC_SYNC1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /*Configure GPIO pin : ESC_EEP_LOAD_Pin */
   GPIO_InitStruct.Pin = ESC_EEP_LOAD_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(ESC_EEP_LOAD_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : SPI1_SS_ESC_Pin */
+  GPIO_InitStruct.Pin = SPI1_SS_ESC_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(SPI1_SS_ESC_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
@@ -891,6 +887,8 @@ Error_Handler(void)
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1) {
+    printf("Error_Handler\n");
+    HAL_Delay(500);
   }
   /* USER CODE END Error_Handler_Debug */
 }

@@ -71,6 +71,8 @@ HW_Release(void);
  */
 UINT16
 HW_GetALEventRegister(void);
+
+#if INTERRUPTS_SUPPORTED
 /**
  * @brief
  * The SPI PDI requires an extra ESC read access functions from interrupts service routines. The behaviour is equal to
@@ -84,6 +86,7 @@ HW_GetALEventRegister(void);
  */
 UINT16
 HW_GetALEventRegister_Isr(void);
+#endif
 
 #if AL_EVENT_ENABLED == 1 && IS_SSC_LOWER_5P10
 /**
@@ -106,12 +109,14 @@ void
 HW_SetALEventMask(UINT16 intMask);
 #endif
 
+#if UC_SET_ECAT_LED == 1
 /**
  * @note
  * Updates the EtherCAT Run and Error LEDs (or EtherCAT Status LED).
  */
 void
 HW_SetLed(UINT8 RunLed, UINT8 ErrLed);
+#endif
 
 #if BOOTSTRAPMODE_SUPPORTED == 1
 /**

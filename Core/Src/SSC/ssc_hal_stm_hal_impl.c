@@ -46,6 +46,50 @@ UALEVENT EscALEvent;
 static UINT32 internal_timer = 0; // global timer variable, incremented by 1 every 1ms
 #endif
 
+// #if INTERRUPTS_SUPPORTED == 1
+/**
+ * @see irq_unlock
+ */
+void
+ENABLE_ESC_INT()
+{
+  // __enable_irq();
+  HAL_NVIC_EnableIRQ(ESC_SPI_IRQ_EXTI_IRQn);
+  HAL_NVIC_EnableIRQ(ESC_SYNC0_EXTI_IRQn);
+  HAL_NVIC_EnableIRQ(ESC_SYNC1_EXTI_IRQn);
+
+  // HAL_TIM_Base_Start_IT(&ESC_TIM_HANDLE);
+  if (HAL_TIM_Base_Start_IT(&ESC_TIM_HANDLE) != HAL_OK) {
+    // LOG_ERR("ESC timer start failed");
+    // printf("ESC timer start failed\n");
+    // assert(FALSE);
+    Error_Handler();
+  }
+}
+/**
+ * @see irq_lock
+ * @details
+ * aware this function will stop hal_delay
+ */
+void
+DISABLE_ESC_INT()
+{
+  // __disable_irq();
+  HAL_NVIC_DisableIRQ(ESC_SPI_IRQ_EXTI_IRQn);
+  HAL_NVIC_DisableIRQ(ESC_SYNC0_EXTI_IRQn);
+  HAL_NVIC_DisableIRQ(ESC_SYNC1_EXTI_IRQn);
+
+  // HAL_TIM_Base_Stop_IT(&ESC_TIM_HANDLE);
+  if (HAL_TIM_Base_Stop_IT(&ESC_TIM_HANDLE) != HAL_OK) {
+    // LOG_ERR("ESC timer stop failed");
+    // printf("ESC timer stop failed\n");
+    // assert(FALSE);
+    Error_Handler();
+  }
+}
+// #endif
+
+
 /**
  * @see Application Note ET9300 ch4.2
  * @see Application Note ET9300 ch5.1 Interrupt Handler
@@ -70,41 +114,22 @@ counter_cb(TIM_HandleTypeDef* htim)
   ENABLE_ESC_INT();
 }
 
-#if INTERRUPTS_SUPPORTED == 1
-/**
- * @see irq_unlock
- */
-void
-ENABLE_ESC_INT()
-{
-  __enable_irq();
-}
-/**
- * @see irq_lock
- */
-void
-DISABLE_ESC_INT()
-{
-  __disable_irq();
-}
-#endif
-
 // ch5.2.1 Generic
 UINT8
 HW_Init(void)
 {
-  // DISABLE_ESC_INT();
   ESC_SPI_CS_Disable();
+  HAL_Delay(100);
   // read eeprom load pin, check eeprom load
-  while (true) {
-    bool ret = HAL_GPIO_ReadPin(ESC_EEP_LOAD_GPIO_Port, ESC_EEP_LOAD_Pin) == GPIO_PIN_RESET;
+  while (TRUE) {
+    bool ret = HAL_GPIO_ReadPin(ESC_EEP_LOAD_GPIO_Port, ESC_EEP_LOAD_Pin) == GPIO_PIN_SET;
     if (ret) {
       break;
     } else {
       // LOG_INF("EEPROM load is not active yet...");
       printf("EEPROM load is not active yet, waiting...\n");
       // HAL have no us delay
-      HAL_Delay(1);
+      HAL_Delay(100);
     }
   }
   // LOG_INF("EEPROM load is active");
@@ -127,9 +152,11 @@ HW_Init(void)
     //   intMask);
     // }
   } while (intMask != 0x93);
+
+  DISABLE_ESC_INT();
   printf("ESC is ready to write in SPI value\n");
   intMask = 0x00;
-  HW_EscWriteDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
+  HW_EscWriteDWordIsr(intMask, ESC_AL_EVENTMASK_OFFSET);
 
 /**
  * start timer
@@ -138,20 +165,23 @@ HW_Init(void)
 #error "current SSC implement use USE_HAL_TIM_REGISTER_CALLBACKS, plz enable it in CubeMX"
 #endif
   ESC_TIM_HANDLE.PeriodElapsedCallback = counter_cb;
-  if (HAL_TIM_Base_Start_IT(&ESC_TIM_HANDLE) != HAL_OK) {
-    // LOG_ERR("ESC timer start failed");
-    printf("ESC timer start failed\n");
-    return 1; // Error
-  }
+
+  // if (HAL_TIM_Base_Start_IT(&ESC_TIM_HANDLE) != HAL_OK) {
+  //   // LOG_ERR("ESC timer start failed");
+  //   printf("ESC timer start failed\n");
+  //   return 1; // Error
+  // }
+
+  printf("HW_Init() finished\n");
+  HAL_Delay(1);
 
   // start global interrupt
-  HAL_NVIC_EnableIRQ(ESC_SPI_IRQ_EXTI_IRQn);
-  HAL_NVIC_EnableIRQ(ESC_SYNC0_EXTI_IRQn);
-  HAL_NVIC_EnableIRQ(ESC_SYNC1_EXTI_IRQn);
+  // HAL_NVIC_EnableIRQ(ESC_SPI_IRQ_EXTI_IRQn);
+  // HAL_NVIC_EnableIRQ(ESC_SYNC0_EXTI_IRQn);
+  // HAL_NVIC_EnableIRQ(ESC_SYNC1_EXTI_IRQn);
 
   // LOG_INF("HW_Init() finished");
-  printf("HW_Init() finished\n");
-  // ENABLE_ESC_INT();
+  ENABLE_ESC_INT();
   return 0; // Success
 }
 void
@@ -174,6 +204,7 @@ GetInterruptRegister(void)
   HW_EscRead((MEM_ADDR*)&dummy, 0, 1);
 }
 
+#if INTERRUPTS_SUPPORTED
 /**
  * @private
  * @brief
@@ -190,6 +221,7 @@ ISR_GetInterruptRegister(void)
   VARVOLATILE UINT8 dummy;
   HW_EscReadIsr((MEM_ADDR*)&dummy, 0, 1);
 }
+#endif
 
 /**
  * @see
@@ -206,6 +238,8 @@ HW_GetALEventRegister(void)
   // printf("ESC ALEvent register: %x\n", EscALEvent.Word);
   return EscALEvent.Word;
 }
+
+#if INTERRUPTS_SUPPORTED
 /**
  * @see
  * Section III-ET1100 Hardware Description ch6.3.6
@@ -220,6 +254,7 @@ HW_GetALEventRegister_Isr(void)
   ISR_GetInterruptRegister();
   return EscALEvent.Word;
 }
+#endif
 
 #if AL_EVENT_ENABLED == 1 && IS_SSC_LOWER_5P10
 /**
@@ -232,12 +267,14 @@ void
 HW_SetALEventMask(UINT16 intMask) {};
 #endif
 
+#if UC_SET_ECAT_LED == 1
 void
 HW_SetLed(UINT8 RunLed, UINT8 ErrLed)
 {
   UNUSED(RunLed);
   UNUSED(ErrLed);
 }
+#endif
 
 #if BOOTSTRAPMODE_SUPPORTED == 1
 void
@@ -268,13 +305,13 @@ UINT32
 HW_GetTimer(void)
 {
   return internal_timer;
-};
+}
 
 void
 HW_ClearTimer(void)
 {
   internal_timer = 0; // reset the timer
-};
+}
 
 #endif
 
@@ -283,13 +320,12 @@ UINT16
 HW_EepromReload(void)
 {
   return 0;
-};
+}
 #endif
 
 /**
  * ch5.2.2 Read Access
  * @see Section III-ET1100 Hardware Description ch6.3.5 ch6.3.8.1
- * @see mcp2515_cmd_read_reg
  */
 void
 HW_EscRead(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
