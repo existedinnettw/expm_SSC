@@ -114,6 +114,27 @@ counter_cb(TIM_HandleTypeDef* htim)
   ENABLE_ESC_INT();
 }
 
+void
+write_and_verifyDWord(UINT32 value, UINT16 address)
+{
+  UINT32 intMask = 0;
+  do {
+    // LOG_INF("Waiting for ESC to be ready...");
+    // k_sleep(K_USEC(10000));
+    HAL_Delay(10);
+    intMask = value;
+    HW_EscWriteDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
+    // k_sleep(K_USEC(2));
+    intMask = 0;
+    HW_EscReadDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
+    // if (intMask != 0x93) {
+    //   // print intMask value
+    //   LOG_INF("ESC not ready to write in SPI value yet, intMask: %lx",
+    //   intMask);
+    // }
+  } while (intMask != value);
+}
+
 // ch5.2.1 Generic
 UINT8
 HW_Init(void)
@@ -152,6 +173,12 @@ HW_Init(void)
     //   intMask);
     // }
   } while (intMask != 0x93);
+
+  // for (int i = 0; i < 16; i++) {
+  //   printf("verify write:%i\n", (0x01 << i));
+  //   write_and_verifyDWord(0x01 << i, ESC_AL_EVENTMASK_OFFSET);
+  // }
+
 
   DISABLE_ESC_INT();
   printf("ESC is ready to write in SPI value\n");
