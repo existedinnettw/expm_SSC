@@ -20,8 +20,10 @@ extern TIM_HandleTypeDef htim2;
 
 // interface lib stm32cubemx already include main.h, which define Pin
 
+// active low
 #define ESC_SPI_CS_Enable() HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_RESET)
 #define ESC_SPI_CS_Disable() HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_SET)
+
 
 /**
  * @private
@@ -53,18 +55,27 @@ static UINT32 internal_timer = 0; // global timer variable, incremented by 1 eve
 void
 ENABLE_ESC_INT()
 {
+
   // __enable_irq();
   HAL_NVIC_EnableIRQ(ESC_SPI_IRQ_EXTI_IRQn);
-  HAL_NVIC_EnableIRQ(ESC_SYNC0_EXTI_IRQn);
-  HAL_NVIC_EnableIRQ(ESC_SYNC1_EXTI_IRQn);
+  // HAL_NVIC_EnableIRQ(ESC_SYNC0_EXTI_IRQn);
+  // HAL_NVIC_EnableIRQ(ESC_SYNC1_EXTI_IRQn);
 
-  // HAL_TIM_Base_Start_IT(&ESC_TIM_HANDLE);
-  if (HAL_TIM_Base_Start_IT(&ESC_TIM_HANDLE) != HAL_OK) {
-    // LOG_ERR("ESC timer start failed");
-    // printf("ESC timer start failed\n");
-    // assert(FALSE);
-    Error_Handler();
-  }
+  // #if ECAT_TIMER_INT == 1
+  //   // repeated start Tim will result in error.
+  //   // however, `ResetALEventMask` call wrap `HW_EscWriteWord` in DISABLE/ENABLE_ESC_INT
+  //   if ((&ESC_TIM_HANDLE)->State == HAL_TIM_STATE_BUSY) {
+  //     return;
+  //   }
+  //   //  HAL_TIM_Base_Start_IT(&ESC_TIM_HANDLE);
+  //   if (HAL_TIM_Base_Start_IT(&ESC_TIM_HANDLE) != HAL_OK) {
+  //     // LOG_ERR("ESC timer start failed");
+  //     // printf("ESC timer start failed\n");
+  //     // assert(FALSE);
+  //     Error_Handler();
+  //   }
+  // #endif
+  return;
 }
 /**
  * @see irq_lock
@@ -76,16 +87,24 @@ DISABLE_ESC_INT()
 {
   // __disable_irq();
   HAL_NVIC_DisableIRQ(ESC_SPI_IRQ_EXTI_IRQn);
-  HAL_NVIC_DisableIRQ(ESC_SYNC0_EXTI_IRQn);
-  HAL_NVIC_DisableIRQ(ESC_SYNC1_EXTI_IRQn);
+  // I found most people just disable spi IRQ
+  //  HAL_NVIC_DisableIRQ(ESC_SYNC0_EXTI_IRQn);
+  //  HAL_NVIC_DisableIRQ(ESC_SYNC1_EXTI_IRQn);
 
-  // HAL_TIM_Base_Stop_IT(&ESC_TIM_HANDLE);
-  if (HAL_TIM_Base_Stop_IT(&ESC_TIM_HANDLE) != HAL_OK) {
-    // LOG_ERR("ESC timer stop failed");
-    // printf("ESC timer stop failed\n");
-    // assert(FALSE);
-    Error_Handler();
-  }
+  // #if ECAT_TIMER_INT == 1
+
+  //   // repeated stop Tim will not result in error
+  //   // will stop timer too. since all intterrupts have same priority, we don't need to disable irq
+  //   // or try to disable irq only, `__HAL_TIM_DISABLE_IT`
+  //   //  HAL_TIM_Base_Stop_IT(&ESC_TIM_HANDLE);
+  //   if (HAL_TIM_Base_Stop_IT(&ESC_TIM_HANDLE) != HAL_OK) {
+  //     // LOG_ERR("ESC timer stop failed");
+  //     // printf("ESC timer stop failed\n");
+  //     // assert(FALSE);
+  //     Error_Handler();
+  //   }
+  // #endif
+  return;
 }
 // #endif
 
@@ -101,7 +120,7 @@ counter_cb(TIM_HandleTypeDef* htim)
 {
   DISABLE_ESC_INT();
   UNUSED(htim);
-  // printf("timer called\n");
+  // printf("timer called\n"); //check period called
 #if ECAT_TIMER_INT == 1
 
   // `ECAT_CheckTimer` shall be called every 1ms.
@@ -114,32 +133,21 @@ counter_cb(TIM_HandleTypeDef* htim)
   ENABLE_ESC_INT();
 }
 
-void
-write_and_verifyDWord(UINT32 value, UINT16 address)
-{
-  UINT32 intMask = 0;
-  do {
-    // LOG_INF("Waiting for ESC to be ready...");
-    // k_sleep(K_USEC(10000));
-    HAL_Delay(10);
-    intMask = value;
-    HW_EscWriteDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
-    // k_sleep(K_USEC(2));
-    intMask = 0;
-    HW_EscReadDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
-    // if (intMask != 0x93) {
-    //   // print intMask value
-    //   LOG_INF("ESC not ready to write in SPI value yet, intMask: %lx",
-    //   intMask);
-    // }
-  } while (intMask != value);
-}
-
 // ch5.2.1 Generic
 UINT8
 HW_Init(void)
 {
-  ESC_SPI_CS_Disable();
+  {
+    DISABLE_ESC_INT();
+    HAL_NVIC_DisableIRQ(ESC_SPI_IRQ_EXTI_IRQn);
+    HAL_NVIC_DisableIRQ(ESC_SYNC0_EXTI_IRQn);
+    HAL_NVIC_DisableIRQ(ESC_SYNC1_EXTI_IRQn);
+    if (HAL_TIM_Base_Stop_IT(&ESC_TIM_HANDLE) != HAL_OK) {
+      Error_Handler();
+    }
+    ESC_SPI_CS_Disable();
+  }
+
   HAL_Delay(100);
   // read eeprom load pin, check eeprom load
   while (TRUE) {
@@ -158,10 +166,9 @@ HW_Init(void)
 
   // check ESC SPI read/write ready
   UINT32 intMask = 0x00;
-  do {
+  while (TRUE) {
     // LOG_INF("Waiting for ESC to be ready...");
     // k_sleep(K_USEC(10000));
-    HAL_Delay(10);
     intMask = 0x93;
     HW_EscWriteDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
     // k_sleep(K_USEC(2));
@@ -172,19 +179,21 @@ HW_Init(void)
     //   LOG_INF("ESC not ready to write in SPI value yet, intMask: %lx",
     //   intMask);
     // }
-  } while (intMask != 0x93);
+    if (intMask == 0x93) {
+      break;
+    }
+    HAL_Delay(1);
+  }
 
-  // for (int i = 0; i < 16; i++) {
-  //   printf("verify write:%i\n", (0x01 << i));
-  //   write_and_verifyDWord(0x01 << i, ESC_AL_EVENTMASK_OFFSET);
-  // }
+  intMask = 0x0;
+  HW_EscWriteDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
 
 
-  DISABLE_ESC_INT();
   printf("ESC is ready to write in SPI value\n");
-  intMask = 0x00;
-  HW_EscWriteDWordIsr(intMask, ESC_AL_EVENTMASK_OFFSET);
+  // intMask = 0x00; // notify all
+  // HW_EscWriteDWordIsr(intMask, ESC_AL_EVENTMASK_OFFSET);
 
+#if ECAT_TIMER_INT == 1
 /**
  * start timer
  */
@@ -192,15 +201,9 @@ HW_Init(void)
 #error "current SSC implement use USE_HAL_TIM_REGISTER_CALLBACKS, plz enable it in CubeMX"
 #endif
   ESC_TIM_HANDLE.PeriodElapsedCallback = counter_cb;
-
-  // if (HAL_TIM_Base_Start_IT(&ESC_TIM_HANDLE) != HAL_OK) {
-  //   // LOG_ERR("ESC timer start failed");
-  //   printf("ESC timer start failed\n");
-  //   return 1; // Error
-  // }
+#endif
 
   printf("HW_Init() finished\n");
-  HAL_Delay(1);
 
   // start global interrupt
   // HAL_NVIC_EnableIRQ(ESC_SPI_IRQ_EXTI_IRQn);
@@ -208,7 +211,19 @@ HW_Init(void)
   // HAL_NVIC_EnableIRQ(ESC_SYNC1_EXTI_IRQn);
 
   // LOG_INF("HW_Init() finished");
-  ENABLE_ESC_INT();
+  {
+    HAL_NVIC_EnableIRQ(ESC_SPI_IRQ_EXTI_IRQn);
+    HAL_NVIC_EnableIRQ(ESC_SYNC0_EXTI_IRQn);
+    HAL_NVIC_EnableIRQ(ESC_SYNC1_EXTI_IRQn);
+#if ECAT_TIMER_INT == 1
+    if (HAL_TIM_Base_Start_IT(&ESC_TIM_HANDLE) != HAL_OK) {
+      // LOG_ERR("ESC timer start failed");
+      printf("ESC timer start failed\n");
+      return 1; // Error
+    }
+#endif
+    ENABLE_ESC_INT();
+  }
   return 0; // Success
 }
 void
@@ -231,7 +246,7 @@ GetInterruptRegister(void)
   HW_EscRead((MEM_ADDR*)&dummy, 0, 1);
 }
 
-#if INTERRUPTS_SUPPORTED
+// #if INTERRUPTS_SUPPORTED
 /**
  * @private
  * @brief
@@ -248,7 +263,7 @@ ISR_GetInterruptRegister(void)
   VARVOLATILE UINT8 dummy;
   HW_EscReadIsr((MEM_ADDR*)&dummy, 0, 1);
 }
-#endif
+// #endif
 
 /**
  * @see
@@ -266,7 +281,7 @@ HW_GetALEventRegister(void)
   return EscALEvent.Word;
 }
 
-#if INTERRUPTS_SUPPORTED
+// #if INTERRUPTS_SUPPORTED
 /**
  * @see
  * Section III-ET1100 Hardware Description ch6.3.6
@@ -281,7 +296,7 @@ HW_GetALEventRegister_Isr(void)
   ISR_GetInterruptRegister();
   return EscALEvent.Word;
 }
-#endif
+// #endif
 
 #if AL_EVENT_ENABLED == 1 && IS_SSC_LOWER_5P10
 /**

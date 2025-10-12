@@ -87,10 +87,14 @@ MX_TIM2_Init(void);
 #define PUTCHAR_PROTOTYPE int fputc(int ch, FILE* f)
 #endif /* __GNUC__ */
 
+#define UART_PRINTF FALSE
+
+#if UART_PRINTF == TRUE
 /**
  * @brief  Retargets the C library printf function to the USART.
  * @param  None
  * @retval None
+ * @attention This function is severely slow(>1ms), and slow down ISR
  */
 PUTCHAR_PROTOTYPE
 {
@@ -105,6 +109,7 @@ PUTCHAR_PROTOTYPE
 
   return ch;
 }
+#endif
 
 /* USER CODE END PFP */
 
@@ -113,33 +118,38 @@ PUTCHAR_PROTOTYPE
 void
 HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
+  UNUSED(GPIO_Pin);
+  // if inited?
+  printf("IO value: %d\n", HAL_GPIO_ReadPin(ESC_SPI_IRQ_GPIO_Port, ESC_SPI_IRQ_Pin));
+
 #if INTERRUPTS_SUPPORTED == 1
   DISABLE_ESC_INT();
 #endif
-  switch (GPIO_Pin) {
-    case ESC_SPI_IRQ_Pin:
-#if AL_EVENT_ENABLED == 1
-      printf("PDI trig\n");
-      PDI_Isr();
-#endif
-      break;
-    case ESC_SYNC0_Pin:
-#if DC_SUPPORTED == 1
-      printf("Sync0 trig\n");
-      Sync0_Isr();
-#endif
-      break;
-    case ESC_SYNC1_Pin:
-#if DC_SUPPORTED == 1
-      printf("Sync1 trig\n");
-      Sync1_Isr();
-#endif
-      break;
 
-    default:
-      printf("Unknown GPIO_EXTI Callback: 0x%x\n", GPIO_Pin);
-      break;
+  printf("EXTI CB: 0x%x\n", GPIO_Pin);
+#if AL_EVENT_ENABLED == 1
+  // read gpio pin state
+  if (HAL_GPIO_ReadPin(ESC_SPI_IRQ_GPIO_Port, ESC_SPI_IRQ_Pin) == GPIO_PIN_RESET) {
+    printf("PDI trig\n");
+    PDI_Isr();
   }
+#endif
+
+#if DC_SUPPORTED == 1
+  if (HAL_GPIO_ReadPin(ESC_SYNC0_GPIO_Port, ESC_SYNC0_Pin) == GPIO_PIN_RESET) {
+    printf("Sync0 trig\n");
+    Sync0_Isr();
+  }
+#endif
+
+#if DC_SUPPORTED == 1
+  if (HAL_GPIO_ReadPin(ESC_SYNC1_GPIO_Port, ESC_SYNC1_Pin) == GPIO_PIN_RESET) {
+    printf("Sync1 trig\n");
+    Sync1_Isr();
+  }
+#endif
+  // printf("Unknown GPIO_EXTI Callback: 0x%x\n", GPIO_Pin);
+
 #if INTERRUPTS_SUPPORTED == 1
   ENABLE_ESC_INT();
 #endif
@@ -199,6 +209,7 @@ main(void)
   }
 
   MainInit(); // COE_ObjDictionaryInit
+  // al mask had reset in MainInit
 
   printf("start\n");
 
@@ -215,11 +226,17 @@ main(void)
 
     // k_sleep(K_USEC(100)); // this is a simple workaround to avoid busy loop
     loop_timer++;
-    if (loop_timer >= 10000) { // 1s
-      loop_timer = 0;
-      // UINT16 al_req_ev = HW_GetALEventRegister();
-      // printf("ESC ALEvent register: 0x%x\n", al_req_ev);
-    }
+    // if (loop_timer >= 10000) { // 1s
+    //   loop_timer = 0;
+    //   UINT16 al_req_ev = HW_GetALEventRegister();
+    //   printf("ESC ALEvent register: 0x%x\n", al_req_ev);
+    //   // check if al event is existed, check if al event mask existed
+    //   // check if SSC consider it's error (by led)
+    //   UINT32 intMask = 0;
+    //   HW_EscReadDWord(intMask, ESC_AL_EVENTMASK_OFFSET);
+    //   printf("ESC ALEvent mask: 0x%lx\n", intMask);
+    // }
+
     if (bRunApplication == FALSE) {
       break;
     }
@@ -334,7 +351,7 @@ MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_HIGH;
   hspi1.Init.CLKPhase = SPI_PHASE_2EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -475,7 +492,7 @@ MX_GPIO_Init(void)
   /*Configure GPIO pins : ESC_SPI_IRQ_Pin ESC_SYNC0_Pin ESC_SYNC1_Pin */
   GPIO_InitStruct.Pin = ESC_SPI_IRQ_Pin | ESC_SYNC0_Pin | ESC_SYNC1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /*Configure GPIO pin : ESC_EEP_LOAD_Pin */
@@ -525,8 +542,8 @@ Error_Handler(void)
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
+  printf("Error_Handler\n");
   while (1) {
-    printf("Error_Handler\n");
     HAL_Delay(500);
   }
   /* USER CODE END Error_Handler_Debug */

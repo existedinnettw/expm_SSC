@@ -72,7 +72,7 @@ HW_Release(void);
 UINT16
 HW_GetALEventRegister(void);
 
-#if INTERRUPTS_SUPPORTED
+// #if INTERRUPTS_SUPPORTED
 /**
  * @brief
  * The SPI PDI requires an extra ESC read access functions from interrupts service routines. The behaviour is equal to
@@ -86,7 +86,7 @@ HW_GetALEventRegister(void);
  */
 UINT16
 HW_GetALEventRegister_Isr(void);
-#endif
+// #endif
 
 #if AL_EVENT_ENABLED == 1 && IS_SSC_LOWER_5P10
 /**
