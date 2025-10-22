@@ -21,8 +21,20 @@ extern TIM_HandleTypeDef htim2;
 // interface lib stm32cubemx already include main.h, which define Pin
 
 // active low
-#define ESC_SPI_CS_Enable() HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_RESET)
-#define ESC_SPI_CS_Disable() HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_SET)
+static void
+ESC_SPI_CS_Enable()
+{
+  HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_RESET);
+  while (HAL_GPIO_ReadPin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin) != GPIO_PIN_RESET) {
+  }
+}
+static void
+ESC_SPI_CS_Disable()
+{
+  HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_SET);
+  while (HAL_GPIO_ReadPin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin) != GPIO_PIN_SET) {
+  }
+}
 
 
 /**
@@ -381,32 +393,56 @@ HW_EscRead(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 void
 HW_EscReadIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 {
-  // 2 byte address mode and Read with wait state byte
-  uint16_t temp_addr_cmd = (Address << 3) | ESC_RD_WAIT;
-  uint8_t tx_buf_combined[3 + Len];
-  uint8_t rx_buf_combined[3 + Len];
+  // Byte-by-byte read per requested style
+  UINT8* pTmpData = (UINT8*)pData;
 
-  tx_buf_combined[0] = (temp_addr_cmd >> 8) & 0xFF;
-  tx_buf_combined[1] = (temp_addr_cmd) & 0xFF;
-  tx_buf_combined[2] = WAIT_STATE_BYTE;
-  memset(&tx_buf_combined[3], 0x00, Len);
+  // Address + command (2-byte addressing)
+  uint16_t temp_addr_cmd = (Address << 3) | ESC_RD;
+  uint8_t addr_buf[2];
+  uint8_t ale_buf[2] = {0};
+  addr_buf[0] = (temp_addr_cmd >> 8) & 0xFF;
+  addr_buf[1] = (temp_addr_cmd) & 0xFF;
 
-  // Pull CS low (if not handled by HAL)
-  // HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_RESET);
-
+  // Select ESC (active low)
   ESC_SPI_CS_Enable();
-  if (HAL_SPI_TransmitReceive(
-        &ESC_SPI_HANDLE, tx_buf_combined, rx_buf_combined, sizeof(tx_buf_combined), ESC_SPI_TIMEOUT) != HAL_OK) {
-    printf("SPI read failed\n");
+
+  // Transmit address/command; simultaneously read out ALEvent (first two bytes)
+  if (HAL_SPI_TransmitReceive(&ESC_SPI_HANDLE, addr_buf, ale_buf, 2, ESC_SPI_TIMEOUT) != HAL_OK) {
+    printf("SPI read addr phase failed\n");
   }
+  EscALEvent.Byte[0] = ale_buf[0];
+  EscALEvent.Byte[1] = ale_buf[1];
+
+  // Read data bytes one-by-one
+  for (UINT16 i = Len; i > 0; i--) {
+    uint8_t tx = (i == 1) ? 0xFF : 0x00; // last byte: DI shall be 1
+    uint8_t rx = 0;
+    if (HAL_SPI_TransmitReceive(&ESC_SPI_HANDLE, &tx, &rx, 1, ESC_SPI_TIMEOUT) != HAL_OK) {
+      printf("SPI read data failed at index %u\n", (unsigned)(Len - i));
+      break;
+    }
+    *pTmpData++ = rx;
+  }
+
+  // Small delay after transmission
+  __NOP();
+
+  // Only a single byte was transmitted => wait for ~250ns (9 NOPs as in reference)
+  if (Len == 1) {
+    __NOP();
+    __NOP();
+    __NOP();
+    __NOP();
+    __NOP();
+    __NOP();
+    __NOP();
+    __NOP();
+    __NOP();
+  }
+
+  // Keep CS low for at least 15ns + CLK/2 after transmission, then deselect
+  __NOP();
   ESC_SPI_CS_Disable();
-
-  // Pull CS high (if not handled by HAL)
-  // HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_SET);
-
-  EscALEvent.Byte[0] = rx_buf_combined[0];
-  EscALEvent.Byte[1] = rx_buf_combined[1];
-  memcpy(pData, &rx_buf_combined[3], Len);
   return;
 }
 
@@ -430,30 +466,56 @@ void
 HW_EscWriteIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 {
 
-  // 2 byte address mode
+  // Byte-by-byte write as requested
+  UINT8* pTmpData = (UINT8*)pData;
+  VARVOLATILE UINT16 dummy = 0;
+
+  // Address + command (2-byte addressing)
   uint16_t temp_addr_cmd = (Address << 3) | ESC_WR;
-  uint8_t tx_buf_combined[2 + Len];
-  uint8_t rx_buf_combined[2 + Len];
+  uint8_t addr_buf[2];
+  uint8_t ale_buf[2] = {0};
+  addr_buf[0] = (temp_addr_cmd >> 8) & 0xFF;
+  addr_buf[1] = (temp_addr_cmd) & 0xFF;
 
-  tx_buf_combined[0] = (temp_addr_cmd >> 8) & 0xFF;
-  tx_buf_combined[1] = (temp_addr_cmd) & 0xFF;
-  memcpy(&tx_buf_combined[2], pData, Len);
-
-  // Pull CS low (if not handled by HAL)
-  // HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_RESET);
-
+  // Select ESC (active low)
   ESC_SPI_CS_Enable();
-  if (HAL_SPI_TransmitReceive(
-        &ESC_SPI_HANDLE, tx_buf_combined, rx_buf_combined, sizeof(tx_buf_combined), ESC_SPI_TIMEOUT) != HAL_OK) {
-    printf("SPI write failed\n");
+
+  // Transmit address/command; simultaneously read out ALEvent (first two bytes)
+  if (HAL_SPI_TransmitReceive(&ESC_SPI_HANDLE, addr_buf, ale_buf, 2, ESC_SPI_TIMEOUT) != HAL_OK) {
+    printf("SPI write addr phase failed\n");
   }
+  EscALEvent.Byte[0] = ale_buf[0];
+  EscALEvent.Byte[1] = ale_buf[1];
+
+  // Write data bytes one-by-one
+  for (UINT16 i = 0; i < Len; i++) {
+    uint8_t rx_byte = 0;
+    if (HAL_SPI_TransmitReceive(&ESC_SPI_HANDLE, &pTmpData[i], &rx_byte, 1, ESC_SPI_TIMEOUT) != HAL_OK) {
+      printf("SPI write data failed at index %u\n", (unsigned)i);
+      break;
+    }
+    dummy = rx_byte; // consume read-back to avoid unused warning
+  }
+  (void)dummy;
+
+  // Small delay after transmission
+  __NOP();
+
+  // Only a single byte was transmitted => wait for ~250ns (9 NOPs as in reference)
+  if (Len == 1) {
+    __NOP();
+    __NOP();
+    __NOP();
+    __NOP();
+    __NOP();
+    __NOP();
+    __NOP();
+    __NOP();
+    __NOP();
+  }
+
+  // Keep CS low for at least 15ns + CLK/2 after transmission, then deselect
+  __NOP();
   ESC_SPI_CS_Disable();
-
-
-  // Pull CS high (if not handled by HAL)
-  // HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_SET);
-
-  EscALEvent.Byte[0] = rx_buf_combined[0];
-  EscALEvent.Byte[1] = rx_buf_combined[1];
   return;
 }
