@@ -378,6 +378,13 @@ HW_EscRead(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
   return;
 }
 
+/**
+ * @see ethercat_et1100_datasheet_v2i1.pdf 6.3.8.2 Read termination
+ * The SPI_DI signal (MOSI) is used for termination of the read access by the SPI master. For the last
+ * data byte, the SPI master has to set SPI_DI to high (read termination byte = 0xFF), so the slave will
+ * not prefetch the next read data internally. If SPI_DI is low during a data byte transfer, at least one
+ * more byte will be read by the master afterwards.
+ */
 void
 HW_EscReadIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 {
@@ -390,6 +397,8 @@ HW_EscReadIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
   tx_buf_combined[1] = (temp_addr_cmd) & 0xFF;
   tx_buf_combined[2] = WAIT_STATE_BYTE;
   memset(&tx_buf_combined[3], 0x00, Len);
+  // Set the last byte to 0xFF for read termination
+  tx_buf_combined[3 + Len - 1] = 0xFF;
 
   // Pull CS low (if not handled by HAL)
   // HAL_GPIO_WritePin(SPI1_SS_ESC_GPIO_Port, SPI1_SS_ESC_Pin, GPIO_PIN_RESET);
