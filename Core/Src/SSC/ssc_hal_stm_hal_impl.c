@@ -399,7 +399,7 @@ HW_EscReadIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
   // Address + command (2-byte addressing)
   uint16_t temp_addr_cmd = (Address << 3) | ESC_RD;
   uint8_t addr_buf[2];
-  uint8_t ale_buf[2] = {0};
+  uint8_t ale_buf[2] = { 0 };
   addr_buf[0] = (temp_addr_cmd >> 8) & 0xFF;
   addr_buf[1] = (temp_addr_cmd) & 0xFF;
 
@@ -415,6 +415,13 @@ HW_EscReadIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 
   // Read data bytes one-by-one
   for (UINT16 i = Len; i > 0; i--) {
+    /**
+     * @see ethercat_et1100_datasheet_v2i1.pdf 6.3.8.2 Read termination
+     * The SPI_DI signal (MOSI) is used for termination of the read access by the SPI master. For the last
+     * data byte, the SPI master has to set SPI_DI to high (read termination byte = 0xFF), so the slave will
+     * not prefetch the next read data internally. If SPI_DI is low during a data byte transfer, at least one
+     * more byte will be read by the master afterwards.
+     */
     uint8_t tx = (i == 1) ? 0xFF : 0x00; // last byte: DI shall be 1
     uint8_t rx = 0;
     if (HAL_SPI_TransmitReceive(&ESC_SPI_HANDLE, &tx, &rx, 1, ESC_SPI_TIMEOUT) != HAL_OK) {
@@ -424,24 +431,6 @@ HW_EscReadIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
     *pTmpData++ = rx;
   }
 
-  // Small delay after transmission
-  __NOP();
-
-  // Only a single byte was transmitted => wait for ~250ns (9 NOPs as in reference)
-  if (Len == 1) {
-    __NOP();
-    __NOP();
-    __NOP();
-    __NOP();
-    __NOP();
-    __NOP();
-    __NOP();
-    __NOP();
-    __NOP();
-  }
-
-  // Keep CS low for at least 15ns + CLK/2 after transmission, then deselect
-  __NOP();
   ESC_SPI_CS_Disable();
   return;
 }
@@ -468,12 +457,11 @@ HW_EscWriteIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
 
   // Byte-by-byte write as requested
   UINT8* pTmpData = (UINT8*)pData;
-  VARVOLATILE UINT16 dummy = 0;
 
   // Address + command (2-byte addressing)
   uint16_t temp_addr_cmd = (Address << 3) | ESC_WR;
   uint8_t addr_buf[2];
-  uint8_t ale_buf[2] = {0};
+  uint8_t ale_buf[2] = { 0 };
   addr_buf[0] = (temp_addr_cmd >> 8) & 0xFF;
   addr_buf[1] = (temp_addr_cmd) & 0xFF;
 
@@ -494,28 +482,9 @@ HW_EscWriteIsr(MEM_ADDR* pData, UINT16 Address, UINT16 Len)
       printf("SPI write data failed at index %u\n", (unsigned)i);
       break;
     }
-    dummy = rx_byte; // consume read-back to avoid unused warning
-  }
-  (void)dummy;
-
-  // Small delay after transmission
-  __NOP();
-
-  // Only a single byte was transmitted => wait for ~250ns (9 NOPs as in reference)
-  if (Len == 1) {
-    __NOP();
-    __NOP();
-    __NOP();
-    __NOP();
-    __NOP();
-    __NOP();
-    __NOP();
-    __NOP();
-    __NOP();
+    (void)rx_byte; // consume read-back to avoid unused warning
   }
 
-  // Keep CS low for at least 15ns + CLK/2 after transmission, then deselect
-  __NOP();
   ESC_SPI_CS_Disable();
   return;
 }
