@@ -12,8 +12,10 @@ Drivers/*
 cmake/stm32cubemx/*
 cmake/gcc-arm-none-eabi.cmake
 cmake/starm-clang.cmake
-Core/Src/SSC/Src/*
-!Core/SSC/Src/SSC-Device.c
+Core/Src/SSC/src/*
+# !Core/Src/SSC/src/SSC-Device.c
+Core/Src/SSC/*.bak
+Core/Src/SSC/*.log
 *.bin
 *.xml
 .mxproject
@@ -26,3 +28,4 @@ system_stm32f4xx.c
 .vscode/launch.json
 
 doc/.*
+**/~$*

@@ -2,6 +2,7 @@
     "recommendations": [
         "marus25.cortex-debug",
         "ms-vscode.cpptools-extension-pack",
-        "xaver.clang-format"
+        "xaver.clang-format",
+        "grapecity.gc-excelviewer"
     ]
 }
