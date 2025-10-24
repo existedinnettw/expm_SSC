@@ -25,11 +25,11 @@ set(CMAKE_PROJECT_NAME expm_SSC)
 # Enable compile command to ease indexing with e.g. clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 
-# Enable CMake support for ASM and C languages
-enable_language(C ASM)
-
 # Core project settings
 project(${CMAKE_PROJECT_NAME})
+
+# Enable CMake support for ASM and C languages
+enable_language(C CXX ASM)
 message("Build type: " ${CMAKE_BUILD_TYPE})
 
 # Create an executable object type
@@ -60,12 +60,18 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined symbols
 )
 
+# user own settings
 add_subdirectory(Core/Src/SSC)
+add_library(task Core/Src/task.cpp)
+target_include_directories(task PUBLIC Core/Inc)
+target_link_libraries(task PUBLIC SSC)
 
 # Add linked libraries
 target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
 
     # Add user defined libraries
+    task
     SSC
 )
+

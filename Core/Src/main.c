@@ -24,6 +24,7 @@
 #include <SSC-Device.h>    //SSC-DeviceObjects.h --> ApplicationObjDic
 #include <applInterface.h> //pAPPL_MainLoop
 #include <ecatappl.h>
+#include <task.h>
 // aware that cubeMX not support CPP generation (only cubeIDE does)
 // https://community.st.com/t5/stm32cubemx-mcus/how-to-configure-stm32cubemx-to-support-c-development/td-p/109965
 
@@ -158,6 +159,7 @@ HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 void
 ssc_appl_application_impl()
 {
+  task_loop();
 }
 /* USER CODE END 0 */
 
@@ -210,7 +212,7 @@ main(void)
 
   MainInit(); // COE_ObjDictionaryInit
   // al mask had reset in MainInit
-
+  task_init();
   printf("start\n");
 
 
