@@ -22,7 +22,7 @@ openocd -f interface/cmsis-dap.cfg -f target/stm32f4x.cfg -c "program build/Debu
 
 ### write SII
 
-assume SSC code generated
+assume SSC code generated, for details of how to generate SSC code, refer to `Core/Src/SSC`.
 
 ```bash
 siitool ./Core/Src/SSC/SSC-Device.xml -o ./build/Debug/SSC-Device.bin
