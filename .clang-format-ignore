@@ -1,5 +1,7 @@
 Core/Src/SSC/Src/*
 Drivers/*
-Core/Inc/*
+Core/Inc/main.h
+Core/Inc/stm32f4xx_hal_conf.h
+Core/Inc/stm32f4xx_it.h
 Core/Src/stm32f4xx_it.c
 Core/Src/stm32f4xx_hal_msp.c

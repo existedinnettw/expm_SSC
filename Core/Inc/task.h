@@ -1,11 +1,12 @@
 #pragma once
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
-void task_init();
-void task_loop();
+  void task_init();
+  void task_loop();
 
 #ifdef __cplusplus
 }
