@@ -18,7 +18,7 @@ target_compile_options(
   SSC PRIVATE -Wno-overflow -Wno-unused-variable -Wno-uninitialized
               -Wno-array-bounds -Wno-maybe-uninitialized -Wno-address)
 
-target_include_directories(SSC PUBLIC ${CMAKE_CURRENT_LIST_DIR}/Src
+target_include_directories(SSC PUBLIC ${CMAKE_CURRENT_LIST_DIR}/src
                                       ${CMAKE_CURRENT_LIST_DIR})
 target_link_libraries(SSC PRIVATE stm32cubemx)
 

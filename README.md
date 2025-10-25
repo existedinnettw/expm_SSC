@@ -17,7 +17,7 @@ then flash binary to MCU (modify depend on your debugger and target)
 
 ```bash
 openocd -f interface/cmsis-dap.cfg -f target/stm32f4x.cfg -c "program build/Debug/expm_SSC.elf verify reset exit"
-# openocd -f interface/stlink-v2-1.cfg -f target/stm32f4x.cfg -c "program build/Debug/expm_SSC.elf verify reset exit"
+# openocd -f interface/stlink.cfg -f target/stm32f4x.cfg -c "program build/Debug/expm_SSC.elf verify reset exit"
 ```
 
 ### write SII
