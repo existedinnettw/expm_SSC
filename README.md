@@ -38,6 +38,7 @@ sudo ethercat rescan && sudo ethercat sii_write ./build/Debug/SSC-Device.bin
 
 ```bash
 sudo ethercat slaves
+# with correct setup, you should see device in PREOP state
 ```
 
 ```bash
@@ -51,6 +52,17 @@ If you want to check what will write in SII ESC Configuration Area, [esc-configd
 ```bash
 esc-configdata-gen -d $(grep -oP '(?<=<ConfigData>)[^<]+' ./Core/Src/SSC/SSC-Device.xml)
 ```
+
+Then you can try to write OD value by SDO
+
+```bash
+sudo ethercat upload -t uint8 0x6200 0
+sudo ethercat upload -t uint8 0x6200 1
+sudo ethercat download -t uint8 0x6200 1 0x01
+sudo ethercat upload -t uint8 0x6200 1
+```
+
+When value written, you should see LED blinked.
 
 ### bonus
 

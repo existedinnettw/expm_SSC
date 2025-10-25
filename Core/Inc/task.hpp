@@ -25,8 +25,15 @@ public:
   virtual void process();
 };
 
-// Lightweight aliases to simplify callback type usage
+/**
+ * @param[in] input_group_id 1<=val<=0xFE
+ * @return input value
+ */
 using DigitalInputFn = std::function<uint8_t(uint8_t)>;
+/**
+ * @param[in] output_group_id
+ * @param[in] output_value
+ */
 using DigitalOutputFn = std::function<void(uint8_t, uint8_t)>;
 
 class Slave401Profile : public Profile

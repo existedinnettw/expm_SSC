@@ -48,13 +48,13 @@ Slave401Profile::post_process()
   // output
   for (UINT8 i = 0; i < m_WriteDigitalOutput8Bit0x6200.u16SubIndex0; i++) {
     uint8_t output_value = m_WriteDigitalOutput8Bit0x6200.aEntries[i];
-    uint8_t output_group_id = i;
+    uint8_t output_group_id = i + 1;
     m_DO_hal(output_group_id, output_value);
   }
 
   // sensor
   for (UINT8 i = 0; i < m_ReadDigitalInput8Bit0x6000.u16SubIndex0; i++) {
-    uint8_t input_group_id = i;
+    uint8_t input_group_id = i + 1;
     uint8_t input_value = m_DI_hal(input_group_id);
     m_ReadDigitalInput8Bit0x6000.aEntries[i] = input_value;
   }
