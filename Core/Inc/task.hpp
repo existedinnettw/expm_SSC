@@ -1,6 +1,8 @@
 #pragma once
 
 #include "task.h"
+#include <cstdint>
+#include <functional>
 
 #ifdef __cplusplus
 extern "C"
@@ -10,6 +12,9 @@ extern "C"
 }
 #endif
 
+/**
+ * \brief Base class for CANopen application-specific device profiles
+ */
 class Profile
 {
 public:
@@ -20,17 +25,25 @@ public:
   virtual void process();
 };
 
+// Lightweight aliases to simplify callback type usage
+using DigitalInputFn = std::function<uint8_t(uint8_t)>;
+using DigitalOutputFn = std::function<void(uint8_t, uint8_t)>;
+
 class Slave401Profile : public Profile
 {
 public:
+  Slave401Profile(DigitalInputFn DI_hal, DigitalOutputFn DO_hal);
+  ~Slave401Profile();
   void pre_process() override;
   void post_process() override;
   void process() override;
 
 protected:
-  // bind to `TOBJ6000 ReadDigitalInput8Bit0x6000`
-  TOBJ6000* m_pObj6000;
-  TOBJ6002* m_pObj6002;
-  TOBJ6200* m_pObj6200;
-  TOBJ6202* m_pObj6202;
+  TOBJ6000& m_ReadDigitalInput8Bit0x6000;
+  TOBJ6002& m_PolarityDigitalInput8Bit0x6002;
+  TOBJ6200& m_WriteDigitalOutput8Bit0x6200;
+  TOBJ6202& m_ChangePolarityDigitalOutput8Bit0x6202;
+
+  DigitalInputFn m_DI_hal;
+  DigitalOutputFn m_DO_hal;
 };

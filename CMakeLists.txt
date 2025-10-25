@@ -62,9 +62,13 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 
 # user own settings
 add_subdirectory(Core/Src/SSC)
-add_library(task Core/Src/task.cpp)
+add_library(task)
+target_sources(task PRIVATE
+    Core/Src/task.cpp
+    Core/Src/profile.cpp
+)
 target_include_directories(task PUBLIC Core/Inc)
-target_link_libraries(task PUBLIC SSC)
+target_link_libraries(task PUBLIC SSC PRIVATE stm32cubemx)
 
 # Add linked libraries
 target_link_libraries(${CMAKE_PROJECT_NAME}
