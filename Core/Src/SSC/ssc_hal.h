@@ -6,8 +6,8 @@
  * @see el9800hw.h
  */
 
-#include "Src/ecat_def.h"
-#include "Src/esc.h"
+#include "src/ecat_def.h"
+#include "src/esc.h"
 
 #define IS_SSC_LOWER_5P10 ((SSC_VERSION_MAJOR == 5 && SSC_VERSION_MINOR <= 10) || SSC_VERSION_MAJOR < 5)
 

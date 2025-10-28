@@ -17,12 +17,12 @@ then flash binary to MCU (modify depend on your debugger and target)
 
 ```bash
 openocd -f interface/cmsis-dap.cfg -f target/stm32f4x.cfg -c "program build/Debug/expm_SSC.elf verify reset exit"
-# openocd -f interface/stlink-v2-1.cfg -f target/stm32f4x.cfg -c "program build/Debug/expm_SSC.elf verify reset exit"
+# openocd -f interface/stlink.cfg -f target/stm32f4x.cfg -c "program build/Debug/expm_SSC.elf verify reset exit"
 ```
 
 ### write SII
 
-assume SSC code generated
+assume SSC code generated, for details of how to generate SSC code, refer to `Core/Src/SSC`.
 
 ```bash
 siitool ./Core/Src/SSC/SSC-Device.xml -o ./build/Debug/SSC-Device.bin
@@ -38,6 +38,7 @@ sudo ethercat rescan && sudo ethercat sii_write ./build/Debug/SSC-Device.bin
 
 ```bash
 sudo ethercat slaves
+# with correct setup, you should see device in PREOP state
 ```
 
 ```bash
@@ -51,6 +52,17 @@ If you want to check what will write in SII ESC Configuration Area, [esc-configd
 ```bash
 esc-configdata-gen -d $(grep -oP '(?<=<ConfigData>)[^<]+' ./Core/Src/SSC/SSC-Device.xml)
 ```
+
+Then you can try to write OD value by SDO
+
+```bash
+sudo ethercat upload -t uint8 0x6200 0
+sudo ethercat upload -t uint8 0x6200 1
+sudo ethercat download -t uint8 0x6200 1 0x01
+sudo ethercat upload -t uint8 0x6200 1
+```
+
+When value written, you should see LED blinked.
 
 ### bonus
 

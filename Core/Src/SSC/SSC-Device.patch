@@ -1,0 +1,220 @@
+--- a/Core/Src/SSC/src/SSC-Device.c
++++ b/Core/Src/SSC/src/SSC-Device.c
+@@ -33,12 +33,124 @@
+ ------    local types and defines
+ ------
+ --------------------------------------------------------------------------------------*/
++/**
++ * \brief Runtime PDO map entry (byte-aligned only).
++ *
++ * Produced by BuildRuntimePDOMap() and consumed by APPL_InputMapping()/APPL_OutputMapping()
++ * for fast memcpy-based PDO exchange. Only byte-aligned entries are supported.
++ */
++typedef struct
++{
++    UINT8 *pVar;        /* pointer to mapped variable memory */
++    UINT16 bitLength;   /* length in bits (must be multiple of 8 for this implementation) */
++} RUNTIME_PDO_MAP_ENTRY;
++
++/**
++ * \brief Maximum number of entries in runtime PDO maps; adjust if your device maps more entries
++ * \details E.g. RUNTIME_MAX_TX_ENTRIES is expected to larger than sum of array length of 0x1600, 0x1610, 0x1620 etc.
++ * \todo May migrate to dynamic allocation
++ */
++#ifndef RUNTIME_MAX_TX_ENTRIES
++#define RUNTIME_MAX_TX_ENTRIES 64
++#endif
++#ifndef RUNTIME_MAX_RX_ENTRIES
++#define RUNTIME_MAX_RX_ENTRIES 64
++#endif
++
++/* Helpers to decode a 0x1600/0x1A00 mapping entry value */
++#define MAP_GET_INDEX(v)      (UINT16)(((v) >> 16) & 0xFFFF)
++#define MAP_GET_SUBINDEX(v)   (UINT8) (((v) >> 8)  & 0xFF)
++#define MAP_GET_BITLEN(v)     (UINT8) ((v)        & 0xFF)
+ 
+ /*-----------------------------------------------------------------------------------------
+ ------
+ ------    local variables and constants
+ ------
+ -----------------------------------------------------------------------------------------*/
++static RUNTIME_PDO_MAP_ENTRY s_TxMap[RUNTIME_MAX_TX_ENTRIES]; /* SM3: slave->master */
++static UINT16 s_TxMapCount = 0;
++static RUNTIME_PDO_MAP_ENTRY s_RxMap[RUNTIME_MAX_RX_ENTRIES]; /* SM2: master->slave */
++static UINT16 s_RxMapCount = 0;
++
++/* Build a runtime PDO map from an Assign object (0x1C12 or 0x1C13).
++   Returns ALSTATUSCODE_NOERROR on success or a suitable AL error otherwise. */
++static UINT16 BuildRuntimePDOMap(const TOBJECT OBJMEM *pAssignObj,
++                                 RUNTIME_PDO_MAP_ENTRY *pDst,
++                                 UINT16 maxEntries,
++                                 UINT16 *pOutCount,
++                                 BOOL isTx /* TRUE: Tx (0x1C13), FALSE: Rx (0x1C12) */)
++{
++    UINT16 cnt = 0;
++    UINT16 assignSub0;
++    UINT16 iAssign;
++
++    if (!pAssignObj || !pAssignObj->pVarPtr)
++        return ALSTATUSCODE_UNSPECIFIEDERROR;
++
++    /* number of assigned PDOs */
++    assignSub0 = *((UINT16 *)pAssignObj->pVarPtr);
++
++    for (iAssign = 0; iAssign < assignSub0; iAssign++)
++    {
++        /* handle of mapping object (e.g., 0x1600 / 0x1A00) */
++        UINT16 mapIndex = ((UINT16 *)pAssignObj->pVarPtr)[1 + iAssign];
++        const TOBJECT OBJMEM *pMapObj = OBJ_GetObjectHandle(mapIndex);
++        if (pMapObj == NULL)
++        {
++            return isTx ? ALSTATUSCODE_INVALIDINPUTMAPPING : ALSTATUSCODE_INVALIDOUTPUTMAPPING;
++        }
++
++        /* number of map entries in that object */
++        UINT16 mapSub0 = *((UINT16 *)pMapObj->pVarPtr);
++        UINT16 iEntry;
++        for (iEntry = 0; iEntry < mapSub0; iEntry++)
++        {
++            /* Each mapping entry is a UINT32 value at subindex (iEntry+1) */
++            UINT16 bitOffsetInMap = OBJ_GetEntryOffset((UINT8)(iEntry + 1), pMapObj);
++            UINT32 *pMapVal = (UINT32 *)(((UINT8 *)pMapObj->pVarPtr) + (bitOffsetInMap >> 3));
++            UINT32 val = *pMapVal;
++
++            UINT16 idx = MAP_GET_INDEX(val);
++            UINT8  sub = MAP_GET_SUBINDEX(val);
++            UINT16 bl  = MAP_GET_BITLEN(val);
++
++            if (bl == 0)
++                continue; /* ignore empty entries */
++
++            /* This minimal implementation supports only byte-aligned entries */
++            if ((bl & 0x7) != 0)
++            {
++                return isTx ? ALSTATUSCODE_INVALIDINPUTMAPPING : ALSTATUSCODE_INVALIDOUTPUTMAPPING;
++            }
++
++            const TOBJECT OBJMEM *pTargetObj = OBJ_GetObjectHandle(idx);
++            if (pTargetObj == NULL || pTargetObj->pVarPtr == NULL)
++            {
++                return isTx ? ALSTATUSCODE_INVALIDINPUTMAPPING : ALSTATUSCODE_INVALIDOUTPUTMAPPING;
++            }
++
++            UINT16 targetBitOff = OBJ_GetEntryOffset(sub, pTargetObj);
++            if ((targetBitOff & 0x7) != 0)
++            {
++                /* bit-level mappings not supported in this fast-path */
++                return isTx ? ALSTATUSCODE_INVALIDINPUTMAPPING : ALSTATUSCODE_INVALIDOUTPUTMAPPING;
++            }
++
++            if (cnt >= maxEntries)
++            {
++                /* overflow safeguard: treat as invalid mapping */
++                return isTx ? ALSTATUSCODE_INVALIDINPUTMAPPING : ALSTATUSCODE_INVALIDOUTPUTMAPPING;
++            }
++
++            pDst[cnt].pVar = ((UINT8 *)pTargetObj->pVarPtr) + (targetBitOff >> 3);
++            pDst[cnt].bitLength = bl;
++            cnt++;
++        }
++    }
++
++    *pOutCount = cnt;
++    return ALSTATUSCODE_NOERROR;
++}
+ 
+ /*-----------------------------------------------------------------------------------------
+ ------
+@@ -116,7 +228,10 @@ UINT16 APPL_StopMailboxHandler(void)
+ 
+ UINT16 APPL_StartInputHandler(UINT16 *pIntMask)
+ {
+-    return ALSTATUSCODE_NOERROR;
++    /* Build Tx (input process data, SM3) runtime map from 0x1C13 */
++    UINT16 al = BuildRuntimePDOMap((const TOBJECT *)OBJ_GetObjectHandle(0x1C13),
++                                   s_TxMap, RUNTIME_MAX_TX_ENTRIES, &s_TxMapCount, TRUE);
++    return al;
+ }
+ 
+ /////////////////////////////////////////////////////////////////////////////////////////
+@@ -132,6 +247,7 @@ UINT16 APPL_StartInputHandler(UINT16 *pIntMask)
+ 
+ UINT16 APPL_StopInputHandler(void)
+ {
++    s_TxMapCount = 0;
+     return ALSTATUSCODE_NOERROR;
+ }
+ 
+@@ -150,7 +266,10 @@ UINT16 APPL_StopInputHandler(void)
+ 
+ UINT16 APPL_StartOutputHandler(void)
+ {
+-    return ALSTATUSCODE_NOERROR;
++    /* Build Rx (output process data, SM2) runtime map from 0x1C12 */
++    UINT16 al = BuildRuntimePDOMap((const TOBJECT *)OBJ_GetObjectHandle(0x1C12),
++                                   s_RxMap, RUNTIME_MAX_RX_ENTRIES, &s_RxMapCount, FALSE);
++    return al;
+ }
+ 
+ /////////////////////////////////////////////////////////////////////////////////////////
+@@ -166,6 +285,7 @@ UINT16 APPL_StartOutputHandler(void)
+ 
+ UINT16 APPL_StopOutputHandler(void)
+ {
++    s_RxMapCount = 0;
+     return ALSTATUSCODE_NOERROR;
+ }
+ 
+@@ -269,11 +389,14 @@ UINT16 APPL_GenerateMapping(UINT16 *pInputSize,UINT16 *pOutputSize)
+ *////////////////////////////////////////////////////////////////////////////////////////
+ void APPL_InputMapping(UINT16* pData)
+ {
+-#if _WIN32
+-   #pragma message ("Warning: Implement input (Slave->Master) mapping")
+-#else
+-    #warning "Implement input (Slave->Master) mapping"
+-#endif
++    /* Copy mapped variables into ESC input buffer in the order defined by runtime Tx map */
++    UINT8 *p = (UINT8 *)pData;
++    for (UINT16 i = 0; i < s_TxMapCount; i++)
++    {
++        UINT16 nBytes = (UINT16)(s_TxMap[i].bitLength >> 3);
++        MEMCPY(p, s_TxMap[i].pVar, nBytes);
++        p += nBytes;
++    }
+ }
+ 
+ /////////////////////////////////////////////////////////////////////////////////////////
+@@ -285,11 +408,14 @@ void APPL_InputMapping(UINT16* pData)
+ *////////////////////////////////////////////////////////////////////////////////////////
+ void APPL_OutputMapping(UINT16* pData)
+ {
+-#if _WIN32
+-   #pragma message ("Warning: Implement output (Master->Slave) mapping")
+-#else
+-    #warning "Implement output (Master->Slave) mapping"
+-#endif
++    /* Copy from ESC output buffer into mapped variables in the order defined by runtime Rx map */
++    UINT8 *p = (UINT8 *)pData;
++    for (UINT16 i = 0; i < s_RxMapCount; i++)
++    {
++        UINT16 nBytes = (UINT16)(s_RxMap[i].bitLength >> 3);
++        MEMCPY(s_RxMap[i].pVar, p, nBytes);
++        p += nBytes;
++    }
+ }
+ 
+ /////////////////////////////////////////////////////////////////////////////////////////
+@@ -299,11 +425,7 @@ void APPL_OutputMapping(UINT16* pData)
+ *////////////////////////////////////////////////////////////////////////////////////////
+ void APPL_Application(void)
+ {
+-#if _WIN32
+-   #pragma message ("Warning: Implement the slave application")
+-#else
+-    #warning "Implement the slave application"
+-#endif
++    SSC_appl_singleton_instance.APPL_Application();
+ }
+ 
+ #if EXPLICIT_DEVICE_ID
